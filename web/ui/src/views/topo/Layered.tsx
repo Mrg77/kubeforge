@@ -251,7 +251,7 @@ function Stack({ graph, hover, setHover, onSelect }: {
 function DetailPanel({ node }: { node: GraphNode }) {
   const meta = kindOf(node.kind)
   return (
-    <div className="pointer-events-none absolute right-3 top-3 z-10 w-64 rounded-lg border bg-[var(--color-bg)] p-3 shadow-xl"
+    <div className="pointer-events-none fixed right-6 top-28 z-30 w-64 rounded-lg border bg-[var(--color-bg)] p-3 shadow-2xl"
       style={{ borderColor: meta.c }}>
       <div className="mb-2 flex items-center gap-2">
         <span>{meta.icon}</span>
