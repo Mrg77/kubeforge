@@ -12,7 +12,15 @@ One binary. One command. It opens a console in your browser, reads your cluster,
 
 [English](README.md) · [Français](README.fr.md)
 
+![KubeForge — the Resource stack of a namespace](docs/img/resource-stack.png)
+
+<sub>The **Resource stack**: a namespace drawn from traffic-in (top) down to config, identity and storage (bottom) — every edge a real reference.</sub>
+
+<br>
+
 ![KubeForge — a tour of the console](docs/img/demo.gif)
+
+<sub>A quick tour: the pillar hub, the Resource stack, the workload graph, the FinOps and SecOps dashboards, and trends over time.</sub>
 
 </div>
 
@@ -28,22 +36,24 @@ The bet is simple: don't build _yet another resource browser_. Build the three o
 
 | Question | KubeForge answers with |
 | --- | --- |
-| **Where is my money going?** | A FinOps treemap — spend per namespace, colored by how much of it is waste. |
-| **How is my cluster actually wired?** | A topology graph — services → the pods they select → the node each runs on. |
+| **How does everything in this namespace fit together?** | The **Resource stack** — every object drawn low→high (Ingress → Service → Pod → Config/RBAC/Storage), each edge a real reference read from a spec. Hover for IP, image and monthly cost; click for the live manifest and events. |
+| **Where is my money going?** | A FinOps **dashboard** — efficiency gauge, editable pricing (AWS/GCP/Azure presets), cost grouped by workload, and a treemap of spend by namespace colored by waste. |
 | **Is it getting better or worse?** | Trend charts with memory, including a reserved-vs-used CPU band where the shaded gap _is_ the waste. |
-| **Where are the security holes?** | A deterministic SecOps scan — privileged pods, host access, open RBAC, mutable image tags. |
+| **How secure is it?** | A deterministic SecOps scan with a **posture score** — privileged pods, host access, open RBAC, mutable image tags, each with a plain _why_ and fix. |
 | **And everything else?** | A universal resource browser that lists **every** kind in the cluster — built-ins and your CRDs. |
 
 ---
 
 ## What's inside
 
-- **Overview** — cluster health at a glance: pods, unhealthy-first, nodes, restarts. The one screen you check first.
-- **Topology** — two lenses over the same graph. A *graph* view for the wiring (hover a service, its whole path lights up) and a *heatmap* view that stays readable at 500+ pods.
-- **Resources** — a universal browser built on the discovery + dynamic client, so it lists anything the API server knows about, including custom resources. Self-managed clusters with hand-rolled CRDs are first-class.
-- **Storage** — PVs, PVCs and StorageClasses in one place, with orphaned volumes and unmounted claims called out (that's storage you're paying for and not using).
-- **FinOps** — a cost-and-waste engine. It reasons about the two things that actually drive Kubernetes waste — resources requested but not used, and workloads with no limits at all — and turns them into right-sizing advice and an estimated monthly cost. The treemap ranks where to look first.
-- **SecOps** — a deterministic security-posture scan (no LLM, no guessing): privileged containers, `hostNetwork`/`hostPID`, dangerous capabilities, run-as-root, mutable image tags, namespaces with no NetworkPolicy, cluster-admin handed to the wrong subjects. Every finding comes with a plain-English _why_ and a fix.
+- **Overview** — a hub: four pillar cards (cost, security, storage, topology) give each area's headline and link into it, over a health table with unhealthy pods surfaced first.
+- **Topology** — five lenses over the same cluster graph:
+  - **Resource stack** _(the headline)_ — a namespace as a layered graph, high-level (Ingress) down to low-level (Secrets, RBAC, storage). Nodes carry inline SecOps warnings and a `CRD` badge for operator resources; hover for facts (IP, image, monthly cost), click for the live manifest (secrets redacted) and recent events.
+  - **Namespaces / Workload graph / By node / Heatmap** — the same graph as namespace cards, a force-directed workload graph, a per-node view, or a fleet heatmap that scales past 500 pods.
+- **FinOps** — a real cost dashboard: a cluster-efficiency gauge (used vs reserved CPU), editable pricing with cloud presets, cost **grouped by workload** (expandable to pods) with filter/search/sort, a top-wasters chart, and the spend-by-namespace treemap.
+- **SecOps** — a deterministic security-posture scan with a **0–100 posture score**: privileged containers, `hostNetwork`/`hostPID`, dangerous capabilities, run-as-root, mutable image tags, namespaces with no NetworkPolicy, cluster-admin handed to the wrong subjects. Filter by severity/category/text; every finding has a plain _why_, a fix, and a jump into the Resource stack.
+- **Storage** — PVs, PVCs and StorageClasses in one place, with orphaned volumes and unmounted claims called out and **costed** (that's storage you're paying for and not using).
+- **Resources** — a universal browser built on the discovery + dynamic client, so it lists anything the API server knows about, including custom resources.
 - **Insights** — trends over time, recorded locally in SQLite, plus an **opt-in AI layer** (see below).
 
 ---
@@ -107,10 +117,10 @@ FinOps usage numbers and the reserved-vs-used band need [metrics-server](https:/
 
 | | |
 | --- | --- |
-| **FinOps** — spend by namespace, colored by waste | **SecOps** — findings, severity, and the fix |
+| **FinOps** — efficiency gauge, editable pricing, cost by workload | **SecOps** — posture score, severity filters, fix per finding |
 | ![FinOps](docs/img/finops.png) | ![SecOps](docs/img/secops.png) |
-| **Topology** — the wiring, service → pod → node | **Insights** — reserved vs. used CPU over time |
-| ![Topology](docs/img/topology-graph.png) | ![Insights](docs/img/insights.png) |
+| **Overview** — the pillar hub | **Insights** — reserved vs. used CPU over time |
+| ![Overview](docs/img/overview.png) | ![Insights](docs/img/insights.png) |
 
 ---
 
@@ -126,7 +136,7 @@ FinOps usage numbers and the reserved-vs-used band need [metrics-server](https:/
 
 ## Status & roadmap
 
-KubeForge is young and moving fast. It already does the five pillars above end-to-end. On the list next: per-node inode and disk-pressure signals, predictive storage-saturation alerts, and packaging (Homebrew, a release binary) so you don't have to build it yourself.
+KubeForge is young and moving fast. All the pillars above work end-to-end, it ships as a Homebrew cask and a release binary, and the Resource stack, FinOps and SecOps dashboards are validated against a real multi-node cluster. On the list next: per-node inode and disk-pressure signals, predictive storage-saturation alerts, and richer CRD-aware edges in the stack.
 
 Issues and ideas are welcome.
 
