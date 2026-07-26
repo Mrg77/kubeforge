@@ -23,11 +23,17 @@ import (
 type Server struct {
 	cluster *cluster.Client
 	history *history.Store // optional; nil disables the trend endpoint
+	cache   *ttlCache      // short memo for expensive whole-cluster scans
 }
+
+// scanTTL is how long a whole-cluster scan is reused. Short enough that the UI
+// always feels live, long enough to collapse the burst of calls a single view
+// (or the Overview hub) fires at once.
+const scanTTL = 8 * time.Second
 
 // New builds an API server over a connected cluster client. store may be nil.
 func New(c *cluster.Client, store *history.Store) *Server {
-	return &Server{cluster: c, history: store}
+	return &Server{cluster: c, history: store, cache: newTTLCache(scanTTL)}
 }
 
 // Routes registers the JSON endpoints on a mux and returns it. Kept separate
@@ -147,7 +153,9 @@ func (s *Server) handleAITrends(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleStorage(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := reqCtx(r)
 	defer cancel()
-	rep, err := storage.Scan(ctx, s.cluster.Kube)
+	rep, err := s.cache.get("storage", time.Now(), func() (any, error) {
+		return storage.Scan(ctx, s.cluster.Kube)
+	})
 	if err != nil {
 		writeError(w, err)
 		return
@@ -213,7 +221,11 @@ func (s *Server) handleFinOps(w http.ResponseWriter, r *http.Request) {
 	if v := parseFloat(r.URL.Query().Get("gbHour")); v > 0 {
 		prices.PerGBHour = v
 	}
-	rep, err := finops.Scan(ctx, s.cluster.Kube, s.cluster.Metrics, prices)
+	// Cache-key on the effective prices so overrides recompute, defaults reuse.
+	key := fmt.Sprintf("finops:%g:%g", prices.PerCPUHour, prices.PerGBHour)
+	v, err := s.cache.get(key, time.Now(), func() (any, error) {
+		return finops.Scan(ctx, s.cluster.Kube, s.cluster.Metrics, prices)
+	})
 	if err != nil {
 		writeError(w, err)
 		return
@@ -223,7 +235,7 @@ func (s *Server) handleFinOps(w http.ResponseWriter, r *http.Request) {
 	out := struct {
 		*finops.Report
 		Provider cluster.CloudProvider `json:"provider"`
-	}{Report: rep, Provider: provider}
+	}{Report: v.(*finops.Report), Provider: provider}
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -236,11 +248,13 @@ func parseFloat(s string) float64 {
 	return f
 }
 
-// handleSecOps runs the deterministic security-posture scan.
+// handleSecOps runs the deterministic security-posture scan (memoized briefly).
 func (s *Server) handleSecOps(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := reqCtx(r)
 	defer cancel()
-	rep, err := secops.Scan(ctx, s.cluster.Kube)
+	rep, err := s.cache.get("secops", time.Now(), func() (any, error) {
+		return secops.Scan(ctx, s.cluster.Kube)
+	})
 	if err != nil {
 		writeError(w, err)
 		return

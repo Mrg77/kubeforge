@@ -111,12 +111,32 @@ export function Layered() {
   )
 }
 
+// LAYER_CAP is how many chips a layer shows before collapsing to a "+N more".
+// Keeps a 100-pod namespace readable; problems (unhealthy/risky) sort to the
+// front so they're always visible even when collapsed.
+const LAYER_CAP = 12
+
 function Stack({ graph, hover, setHover, onSelect }: {
   graph: LayeredGraph
   hover: string | null
   setHover: (s: string | null) => void
   onSelect: (n: GraphNode) => void
 }) {
+  const { t } = useT()
+  const layerLabel = (id: string, fallback: string) => {
+    const k = `topo.layer.${id}`
+    const v = t(k)
+    return v === k ? fallback : v
+  }
+  const layerLabelT = (which: 'more' | 'less') => t(which === 'more' ? 'topo.more' : 'topo.less')
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const toggleLayer = (id: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+
   const layout = useMemo(() => {
     // keep only layers that actually have nodes, in the backend's order
     const present = graph.layers.filter((l) => graph.nodes.some((n) => n.layer === l.id))
@@ -124,16 +144,26 @@ function Stack({ graph, hover, setHover, onSelect }: {
     for (const l of present) byLayer.set(l.id, [])
     for (const n of graph.nodes) byLayer.get(n.layer)?.push(n)
 
-    // order nodes within each layer by name for stability
-    for (const arr of byLayer.values()) arr.sort((a, b) => a.name.localeCompare(b.name))
+    // sort each layer: problems first (unhealthy, then risky), then by name — so
+    // a capped layer still surfaces what needs attention.
+    const rank = (n: GraphNode) => (!n.healthy ? 0 : (n.risk?.length ?? 0) > 0 ? 1 : 2)
+    for (const arr of byLayer.values())
+      arr.sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name))
 
-    // position: each present layer is a row; nodes spread across the row
+    // position: each present layer is a row; visible nodes spread across it.
     const pos = new Map<string, { x: number; y: number }>()
+    const overflow = new Map<string, number>() // layer id -> hidden count
     let maxCols = 0
     present.forEach((l, row) => {
       const arr = byLayer.get(l.id)!
-      maxCols = Math.max(maxCols, arr.length)
-      arr.forEach((n, i) => {
+      const isOpen = expanded.has(l.id)
+      const visible = isOpen ? arr : arr.slice(0, LAYER_CAP)
+      const hidden = arr.length - visible.length
+      if (hidden > 0 || (isOpen && arr.length > LAYER_CAP)) overflow.set(l.id, hidden)
+      // +1 column slot reserved for the "+N more" / "show less" chip when capped
+      const cols = visible.length + (arr.length > LAYER_CAP ? 1 : 0)
+      maxCols = Math.max(maxCols, cols)
+      visible.forEach((n, i) => {
         pos.set(n.id, {
           x: LAYER_LABEL_W + PAD + i * (CHIP_W + CHIP_GAP_X),
           y: PAD + row * ROW_H,
@@ -142,8 +172,8 @@ function Stack({ graph, hover, setHover, onSelect }: {
     })
     const width = LAYER_LABEL_W + PAD * 2 + maxCols * (CHIP_W + CHIP_GAP_X)
     const height = PAD * 2 + present.length * ROW_H
-    return { present, byLayer, pos, width: Math.max(width, 720), height }
-  }, [graph])
+    return { present, byLayer, pos, overflow, width: Math.max(width, 720), height }
+  }, [graph, expanded])
 
   // adjacency for hover highlight (both directions)
   const adj = useMemo(() => {
@@ -171,15 +201,32 @@ function Stack({ graph, hover, setHover, onSelect }: {
             <path d="M0,0 L6.5,3.2 L0,6.4 Z" fill="var(--color-accent)" />
           </marker>
         </defs>
-        {/* layer bands + labels */}
+        {/* layer bands + labels + overflow chips */}
         {layout.present.map((l, row) => {
           const y = PAD + row * ROW_H
+          const arr = layout.byLayer.get(l.id)!
+          const capped = arr.length > LAYER_CAP
+          const isOpen = expanded.has(l.id)
+          const hidden = layout.overflow.get(l.id) ?? 0
+          // x-slot for the overflow chip = after the last visible chip
+          const shown = isOpen ? arr.length : Math.min(arr.length, LAYER_CAP)
+          const chipX = LAYER_LABEL_W + PAD + shown * (CHIP_W + CHIP_GAP_X)
           return (
             <g key={l.id}>
               <rect x={0} y={y - 12} width={layout.width} height={ROW_H - 8} rx={6}
                 fill={row % 2 ? 'transparent' : 'var(--color-bg)'} opacity={0.5} />
               <text x={12} y={y + CHIP_H / 2} fill="var(--color-ink-faint)" fontSize={11}
-                className="mono" dominantBaseline="middle">{l.label}</text>
+                className="mono" dominantBaseline="middle">{layerLabel(l.id, l.label)}</text>
+              {capped && (
+                <g transform={`translate(${chipX},${y})`} onClick={() => toggleLayer(l.id)} style={{ cursor: 'pointer' }}>
+                  <rect width={CHIP_W} height={CHIP_H} rx={7}
+                    fill="var(--color-surface-2)" stroke="var(--color-border)" strokeDasharray="3 3" />
+                  <text x={CHIP_W / 2} y={CHIP_H / 2} textAnchor="middle" dominantBaseline="middle"
+                    fontSize={11} fill="var(--color-accent)">
+                    {isOpen ? layerLabelT('less') : `+${hidden} ${layerLabelT('more')}`}
+                  </text>
+                </g>
+              )}
             </g>
           )
         })}

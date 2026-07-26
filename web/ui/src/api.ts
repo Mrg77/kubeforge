@@ -108,6 +108,7 @@ export interface SecFinding {
 export interface SecReport {
   findings: SecFinding[]
   counts: { critical: number; high: number; medium: number; low: number; info: number }
+  ownCounts: { critical: number; high: number; medium: number; low: number; info: number }
   scanned: { pods: number; namespaces: number; clusterRoleBindings: number }
 }
 

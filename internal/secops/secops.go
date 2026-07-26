@@ -103,7 +103,12 @@ func indexByte(s string, b byte) int {
 type Report struct {
 	Findings []Finding     `json:"findings"`
 	Counts   SeverityCount `json:"counts"`
-	Scanned  ScanScope     `json:"scanned"`
+	// OwnCounts tallies only NON-system findings — the posture score is built
+	// from these, so a "F" reflects YOUR workloads, not Kubernetes' own
+	// privileged system pods (kube-proxy, kindnet…) which are privileged by
+	// design and would otherwise sink every cluster's grade.
+	OwnCounts SeverityCount `json:"ownCounts"`
+	Scanned   ScanScope     `json:"scanned"`
 }
 
 // SeverityCount is the tally the UI shows as a summary.
@@ -122,20 +127,27 @@ type ScanScope struct {
 	ClusterRoleBind int `json:"clusterRoleBindings"`
 }
 
-// tally computes the severity counts from findings.
+// tally computes the total and non-system severity counts from findings.
 func (r *Report) tally() {
 	for _, f := range r.Findings {
-		switch f.Severity {
-		case SevCritical:
-			r.Counts.Critical++
-		case SevHigh:
-			r.Counts.High++
-		case SevMedium:
-			r.Counts.Medium++
-		case SevLow:
-			r.Counts.Low++
-		default:
-			r.Counts.Info++
+		bump(&r.Counts, f.Severity)
+		if !f.System {
+			bump(&r.OwnCounts, f.Severity)
 		}
+	}
+}
+
+func bump(c *SeverityCount, sev Severity) {
+	switch sev {
+	case SevCritical:
+		c.Critical++
+	case SevHigh:
+		c.High++
+	case SevMedium:
+		c.Medium++
+	case SevLow:
+		c.Low++
+	default:
+		c.Info++
 	}
 }

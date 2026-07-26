@@ -76,13 +76,8 @@ export function Overview() {
         </Card>
       )}
 
-      {/* All pods */}
-      <Card>
-        <div className="border-b border-[var(--color-border)] px-5 py-3 text-sm font-medium">
-          {t('ov.allPods')} <span className="text-[var(--color-ink-faint)]">({pods.length})</span>
-        </div>
-        <PodTable pods={pods} />
-      </Card>
+      {/* All pods — searchable + paginated so it stays fast on 500+ pods */}
+      <AllPods pods={pods} />
     </div>
   )
 }
@@ -108,6 +103,52 @@ function PillarCard({ tab, title, value, sub, accent }: {
       <div className="mt-1 text-2xl font-semibold text-[var(--color-ink)]">{value}</div>
       <div className="mt-0.5 text-xs text-[var(--color-ink-dim)]">{sub}</div>
     </button>
+  )
+}
+
+// AllPods paginates and filters the full pod list so a 500-pod cluster stays
+// snappy — a search box + page controls over a fixed page size.
+const PAGE_SIZE = 25
+
+function AllPods({ pods }: { pods: Pod[] }) {
+  const { t } = useT()
+  const [q, setQ] = useState('')
+  const [page, setPage] = useState(0)
+
+  const filtered = q.trim()
+    ? pods.filter((p) => {
+        const s = q.toLowerCase()
+        return p.name.toLowerCase().includes(s) || p.namespace.toLowerCase().includes(s)
+      })
+    : pods
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const safePage = Math.min(page, pageCount - 1)
+  const slice = filtered.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE)
+
+  return (
+    <Card>
+      <div className="flex flex-wrap items-center gap-3 border-b border-[var(--color-border)] px-5 py-3">
+        <span className="text-sm font-medium">
+          {t('ov.allPods')} <span className="text-[var(--color-ink-faint)]">({filtered.length})</span>
+        </span>
+        <input
+          value={q}
+          onChange={(e) => { setQ(e.target.value); setPage(0) }}
+          placeholder={t('fin.search')}
+          className="ml-auto w-48 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2.5 py-1 text-xs outline-none"
+        />
+      </div>
+      <PodTable pods={slice} />
+      {pageCount > 1 && (
+        <div className="flex items-center justify-end gap-2 border-t border-[var(--color-border)] px-5 py-2 text-xs text-[var(--color-ink-dim)]">
+          <button disabled={safePage === 0} onClick={() => setPage(safePage - 1)}
+            className="rounded px-2 py-0.5 disabled:opacity-40 hover:bg-[var(--color-surface-2)]">←</button>
+          <span>{safePage + 1} / {pageCount}</span>
+          <button disabled={safePage >= pageCount - 1} onClick={() => setPage(safePage + 1)}
+            className="rounded px-2 py-0.5 disabled:opacity-40 hover:bg-[var(--color-surface-2)]">→</button>
+        </div>
+      )}
+    </Card>
   )
 }
 

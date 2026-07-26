@@ -61,9 +61,11 @@ export function SecOps() {
 
   return (
     <div className="flex flex-col gap-5">
-      {/* score + severity KPIs */}
+      {/* score + severity KPIs. The score is built from your OWN findings
+          (excluding system namespaces), so Kubernetes' privileged system pods
+          don't sink every cluster's grade. */}
       <div className="grid gap-4 lg:grid-cols-[auto_1fr]">
-        <ScoreGauge counts={c} scanned={rep.scanned.pods} />
+        <ScoreGauge counts={rep.ownCounts} scanned={rep.scanned.pods} />
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <SevCard label={t('sec.critical')} value={c.critical} color="var(--color-crit)" active={sev === 'CRITICAL'} onClick={() => setSev(sev === 'CRITICAL' ? 'all' : 'CRITICAL')} />
           <SevCard label={t('sec.high')} value={c.high} color="var(--color-crit)" active={sev === 'HIGH'} onClick={() => setSev(sev === 'HIGH' ? 'all' : 'HIGH')} />

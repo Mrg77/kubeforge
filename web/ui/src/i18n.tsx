@@ -70,6 +70,17 @@ const EN: Record<string, string> = {
   'topo.noEvents': 'No recent events for this object.',
   'topo.noDetail': 'No extra detail for this kind.',
   'topo.secWarnings': 'SecOps warnings',
+  'topo.more': 'more',
+  'topo.less': 'show less',
+  'topo.layer.governance': 'Governance',
+  'topo.layer.ingress': 'Ingress',
+  'topo.layer.service': 'Services',
+  'topo.layer.workload': 'Workloads',
+  'topo.layer.replicaset': 'ReplicaSets',
+  'topo.layer.pod': 'Pods',
+  'topo.layer.config': 'Config & Secrets',
+  'topo.layer.rbac': 'Identity & RBAC',
+  'topo.layer.storage': 'Storage',
 
   // finops
   'fin.reservedMo': 'Reserved / mo',
@@ -111,7 +122,7 @@ const EN: Record<string, string> = {
 
   // secops
   'sec.postureScore': 'Posture score',
-  'sec.postureSub': 'Weighted by severity across {n} pods scanned.',
+  'sec.postureSub': 'Your workloads, weighted by severity ({n} pods scanned; system namespaces excluded).',
   'sec.fixFirst': 'Fix criticals first to move the needle.',
   'sec.critical': 'Critical',
   'sec.high': 'High',
@@ -220,6 +231,17 @@ const FR: Record<string, string> = {
   'topo.noEvents': 'Aucun event récent pour cet objet.',
   'topo.noDetail': 'Pas de détail supplémentaire pour ce type.',
   'topo.secWarnings': 'Alertes SecOps',
+  'topo.more': 'de plus',
+  'topo.less': 'réduire',
+  'topo.layer.governance': 'Gouvernance',
+  'topo.layer.ingress': 'Ingress',
+  'topo.layer.service': 'Services',
+  'topo.layer.workload': 'Workloads',
+  'topo.layer.replicaset': 'ReplicaSets',
+  'topo.layer.pod': 'Pods',
+  'topo.layer.config': 'Config & Secrets',
+  'topo.layer.rbac': 'Identité & RBAC',
+  'topo.layer.storage': 'Stockage',
 
   'fin.reservedMo': 'Réservé / mois',
   'fin.estimated': 'estimé',
@@ -259,7 +281,7 @@ const FR: Record<string, string> = {
   'waste.unbounded': 'sans limites',
 
   'sec.postureScore': 'Score de posture',
-  'sec.postureSub': 'Pondéré par sévérité sur {n} pods scannés.',
+  'sec.postureSub': 'Vos workloads, pondérés par sévérité ({n} pods scannés ; namespaces système exclus).',
   'sec.fixFirst': 'Corrigez les critiques en premier pour faire bouger le score.',
   'sec.critical': 'Critiques',
   'sec.high': 'Élevés',
