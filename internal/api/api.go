@@ -195,16 +195,42 @@ func parseSince(s string) time.Duration {
 	return d
 }
 
-// handleFinOps computes the cost/waste report.
+// handleFinOps computes the cost/waste report. Optional query params cpuHour and
+// gbHour override the per-unit prices so the UI's price editor recomputes live.
 func (s *Server) handleFinOps(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := reqCtx(r)
 	defer cancel()
-	rep, err := finops.Scan(ctx, s.cluster.Kube, s.cluster.Metrics, finops.Prices{})
+	prices := finops.Prices{}
+	if v := parseFloat(r.URL.Query().Get("cpuHour")); v > 0 {
+		prices.PerCPUHour = v
+	}
+	if v := parseFloat(r.URL.Query().Get("gbHour")); v > 0 {
+		prices.PerGBHour = v
+	}
+	// If only one is set, fill the other from defaults so we don't zero it out.
+	if (prices.PerCPUHour > 0) != (prices.PerGBHour > 0) {
+		if prices.PerCPUHour == 0 {
+			prices.PerCPUHour = finops.DefaultPrices.PerCPUHour
+		}
+		if prices.PerGBHour == 0 {
+			prices.PerGBHour = finops.DefaultPrices.PerGBHour
+		}
+	}
+	rep, err := finops.Scan(ctx, s.cluster.Kube, s.cluster.Metrics, prices)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, rep)
+}
+
+func parseFloat(s string) float64 {
+	var f float64
+	if s == "" {
+		return 0
+	}
+	fmt.Sscanf(s, "%g", &f)
+	return f
 }
 
 // handleSecOps runs the deterministic security-posture scan.

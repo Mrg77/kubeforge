@@ -112,6 +112,8 @@ export interface SecReport {
 export interface PodCost {
   name: string
   namespace: string
+  owner: string
+  ownerKind: string
   cpuRequest: number
   cpuUsage: number
   memRequestGB: number
@@ -123,6 +125,20 @@ export interface PodCost {
   hasMetrics: boolean
 }
 
+export interface WorkloadCost {
+  name: string
+  namespace: string
+  kind: string
+  pods: number
+  cpuRequest: number
+  cpuUsage: number
+  memRequestGB: number
+  memUsageGB: number
+  monthlyCost: number
+  wastedMonthly: number
+  level: 'ok' | 'moderate' | 'high' | 'unbounded'
+}
+
 export interface NamespaceCost {
   namespace: string
   monthlyCost: number
@@ -132,11 +148,16 @@ export interface NamespaceCost {
 
 export interface FinReport {
   pods: PodCost[]
+  workloads: WorkloadCost[]
   namespaces: NamespaceCost[]
   totalMonthly: number
   wastedMonthly: number
+  totalCpuReq: number
+  totalCpuUsed: number
+  totalMemReqGB: number
+  totalMemUsedGB: number
   metricsAvailable: boolean
-  prices: { perCPUHour: number; perGBHour: number }
+  prices: { PerCPUHour: number; PerGBHour: number }
 }
 
 export interface Snapshot {
@@ -224,7 +245,11 @@ export const api = {
     return get<GenericObject[]>(`/api/resources/${group}/${rk.version}/${rk.name}${q}`)
   },
   secops: () => get<SecReport>('/api/secops'),
-  finops: () => get<FinReport>('/api/finops'),
+  finops: (prices?: { cpuHour: number; gbHour: number }) =>
+    get<FinReport>(
+      '/api/finops' +
+        (prices ? `?cpuHour=${prices.cpuHour}&gbHour=${prices.gbHour}` : ''),
+    ),
   storage: () => get<StorageReport>('/api/storage'),
   history: (since?: string) => get<Snapshot[]>('/api/history' + (since ? `?since=${since}` : '')),
 

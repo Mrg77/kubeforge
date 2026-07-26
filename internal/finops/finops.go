@@ -45,6 +45,11 @@ const (
 type PodCost struct {
 	Name      string `json:"name"`
 	Namespace string `json:"namespace"`
+	// Owner is the controlling workload (Deployment/StatefulSet name), so the UI
+	// can group replicas into the unit people right-size. Falls back to the pod
+	// name for standalone pods.
+	Owner     string `json:"owner"`
+	OwnerKind string `json:"ownerKind"`
 
 	CPURequest   float64 `json:"cpuRequest"`   // cores reserved
 	CPUUsage     float64 `json:"cpuUsage"`     // cores actually used (from metrics)
@@ -67,12 +72,33 @@ type NamespaceCost struct {
 	Pods          int     `json:"pods"`
 }
 
+// WorkloadCost aggregates the pods of one workload — the level at which people
+// actually right-size (you scale a Deployment, not a single replica).
+type WorkloadCost struct {
+	Name          string  `json:"name"`
+	Namespace     string  `json:"namespace"`
+	Kind          string  `json:"kind"`
+	Pods          int     `json:"pods"`
+	CPURequest    float64 `json:"cpuRequest"`
+	CPUUsage      float64 `json:"cpuUsage"`
+	MemRequestGB  float64 `json:"memRequestGB"`
+	MemUsageGB    float64 `json:"memUsageGB"`
+	MonthlyCost   float64 `json:"monthlyCost"`
+	WastedMonthly float64 `json:"wastedMonthly"`
+	Level         WasteLevel `json:"level"`
+}
+
 // Report is the whole-cluster FinOps summary.
 type Report struct {
 	Pods             []PodCost       `json:"pods"`
+	Workloads        []WorkloadCost  `json:"workloads"`     // per-workload rollup (the action level)
 	Namespaces       []NamespaceCost `json:"namespaces"`    // per-namespace rollup for the treemap
 	TotalMonthly     float64         `json:"totalMonthly"`  // estimated $/mo reserved across all pods
 	WastedMonthly    float64         `json:"wastedMonthly"` // estimated $/mo wasted (reserved-unused)
+	TotalCPUReq      float64         `json:"totalCpuReq"`   // cluster totals for the efficiency gauge
+	TotalCPUUsed     float64         `json:"totalCpuUsed"`
+	TotalMemReqGB    float64         `json:"totalMemReqGB"`
+	TotalMemUsedGB   float64         `json:"totalMemUsedGB"`
 	MetricsAvailable bool            `json:"metricsAvailable"`
 	Prices           Prices          `json:"prices"`
 }

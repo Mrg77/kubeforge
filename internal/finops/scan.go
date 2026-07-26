@@ -50,7 +50,14 @@ func Scan(ctx context.Context, kube kubernetes.Interface, metrics metricsv.Inter
 		rep.Pods = append(rep.Pods, pc)
 		rep.TotalMonthly += pc.MonthlyCost
 		rep.WastedMonthly += pc.WastedMonthly
+		rep.TotalCPUReq += pc.CPURequest
+		rep.TotalCPUUsed += pc.CPUUsage
+		rep.TotalMemReqGB += pc.MemRequestGB
+		rep.TotalMemUsedGB += pc.MemUsageGB
 	}
+
+	// Roll up per workload — the level people actually right-size.
+	rep.Workloads = rollupWorkloads(rep.Pods)
 
 	// Worst waste first — that's where the money is.
 	sort.SliceStable(rep.Pods, func(a, b int) bool {
@@ -98,8 +105,10 @@ func podCost(p *corev1.Pod, used struct{ cpu, mem float64 }, hasMetrics bool, pr
 		}
 	}
 
+	owner, ownerKind := workloadOf(p)
 	pc := PodCost{
 		Name: p.Name, Namespace: p.Namespace,
+		Owner: owner, OwnerKind: ownerKind,
 		CPURequest: round(cpuReq), MemRequestGB: round(memReq),
 		CPUUsage: round(used.cpu), MemUsageGB: round(used.mem),
 		HasMetrics:  hasMetrics,
@@ -184,3 +193,81 @@ func minRatio(a, b float64) float64 {
 func rightSize(used float64) float64 { return round(used * 1.3) }
 
 func round(f float64) float64 { return float64(int(f*100+0.5)) / 100 }
+
+// workloadOf resolves a pod's controlling workload from its ownerReferences.
+// A Deployment shows through its ReplicaSet, so we strip the RS hash suffix.
+// Standalone pods return their own name.
+func workloadOf(p *corev1.Pod) (name, kind string) {
+	for _, ref := range p.OwnerReferences {
+		if ref.Controller == nil || !*ref.Controller {
+			continue
+		}
+		switch ref.Kind {
+		case "ReplicaSet":
+			if i := lastDash(ref.Name); i > 0 {
+				return ref.Name[:i], "Deployment"
+			}
+			return ref.Name, "ReplicaSet"
+		case "StatefulSet", "DaemonSet", "Job":
+			return ref.Name, ref.Kind
+		default:
+			return ref.Name, ref.Kind
+		}
+	}
+	return p.Name, "Pod"
+}
+
+func lastDash(s string) int {
+	for i := len(s) - 1; i >= 0; i-- {
+		if s[i] == '-' {
+			return i
+		}
+	}
+	return -1
+}
+
+// rollupWorkloads aggregates pods into their workloads, summing cost and usage,
+// and re-deriving the waste level from the aggregate ratio. Sorted worst-waste
+// first — where the money is.
+func rollupWorkloads(pods []PodCost) []WorkloadCost {
+	by := map[string]*WorkloadCost{}
+	for _, pc := range pods {
+		key := pc.Namespace + "/" + pc.Owner
+		w := by[key]
+		if w == nil {
+			w = &WorkloadCost{Name: pc.Owner, Namespace: pc.Namespace, Kind: pc.OwnerKind}
+			by[key] = w
+		}
+		w.Pods++
+		w.CPURequest += pc.CPURequest
+		w.CPUUsage += pc.CPUUsage
+		w.MemRequestGB += pc.MemRequestGB
+		w.MemUsageGB += pc.MemUsageGB
+		w.MonthlyCost += pc.MonthlyCost
+		w.WastedMonthly += pc.WastedMonthly
+	}
+	out := make([]WorkloadCost, 0, len(by))
+	for _, w := range by {
+		w.CPURequest = round(w.CPURequest)
+		w.CPUUsage = round(w.CPUUsage)
+		w.MemRequestGB = round(w.MemRequestGB)
+		w.MemUsageGB = round(w.MemUsageGB)
+		w.MonthlyCost = round(w.MonthlyCost)
+		w.WastedMonthly = round(w.WastedMonthly)
+		// aggregate waste level from the combined CPU ratio
+		ratio := usageRatio(w.CPUUsage, w.CPURequest)
+		switch {
+		case w.CPURequest == 0 && w.MemRequestGB == 0:
+			w.Level = WasteUnbounded
+		case ratio < 0.3:
+			w.Level = WasteHigh
+		case ratio < 0.6:
+			w.Level = WasteModerate
+		default:
+			w.Level = WasteNone
+		}
+		out = append(out, *w)
+	}
+	sort.SliceStable(out, func(a, b int) bool { return out[a].WastedMonthly > out[b].WastedMonthly })
+	return out
+}
