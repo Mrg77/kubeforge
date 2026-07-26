@@ -2,14 +2,14 @@ import { useEffect, useState } from 'react'
 import {
   LineChart, Line, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts'
-import { Sparkles, TrendingUp, Settings } from 'lucide-react'
+import { Sparkles, Settings } from 'lucide-react'
 import { api, type Snapshot, type AIConfig, type AIProvider } from '../api'
-import { Card, Spinner, ErrorNote, cn } from '../lib'
+import { Card, Spinner, ErrorNote } from '../lib'
 import { useT } from '../i18n'
 
 // Insights: the trends-over-time charts (always available, deterministic) plus
 // the opt-in AI layer (bring-your-own-key) that summarizes and analyzes them.
-export function Insights() {
+export function Insights({ onOpenChat }: { onOpenChat: () => void }) {
   const [history, setHistory] = useState<Snapshot[] | null>(null)
   const [cfg, setCfg] = useState<AIConfig | null>(null)
   const [err, setErr] = useState<string | null>(null)
@@ -24,7 +24,7 @@ export function Insights() {
 
   return (
     <div className="flex flex-col gap-6">
-      <AIPanel cfg={cfg} onConfig={setCfg} hasHistory={history.length >= 2} />
+      <AIPanel cfg={cfg} onConfig={setCfg} onOpenChat={onOpenChat} />
       <TrendCharts history={history} />
     </div>
   )
@@ -35,31 +35,14 @@ export function Insights() {
 function AIPanel({
   cfg,
   onConfig,
-  hasHistory,
+  onOpenChat,
 }: {
   cfg: AIConfig
   onConfig: (c: AIConfig) => void
-  hasHistory: boolean
+  onOpenChat: () => void
 }) {
-  const { t, locale } = useT()
+  const { t } = useT()
   const [showConfig, setShowConfig] = useState(!cfg.configured)
-  const [summary, setSummary] = useState<string | null>(null)
-  const [trend, setTrend] = useState<string | null>(null)
-  const [busy, setBusy] = useState<'summary' | 'trend' | null>(null)
-
-  const run = async (kind: 'summary' | 'trend') => {
-    setBusy(kind)
-    try {
-      const res = kind === 'summary' ? await api.aiSummary(locale) : await api.aiTrends(locale)
-      if (res.error) throw new Error(res.error)
-      kind === 'summary' ? setSummary(res.text!) : setTrend(res.text!)
-    } catch (e) {
-      const msg = String((e as Error).message ?? e)
-      kind === 'summary' ? setSummary('⚠ ' + msg) : setTrend('⚠ ' + msg)
-    } finally {
-      setBusy(null)
-    }
-  }
 
   return (
     <Card className="p-5">
@@ -87,71 +70,14 @@ function AIPanel({
 
       {showConfig && <ConfigForm cfg={cfg} onSaved={(c) => { onConfig(c); setShowConfig(!c.configured) }} />}
 
-      {cfg.configured && (
-        <div className="mt-4 flex flex-wrap gap-3">
-          <ActionButton
-            icon={Sparkles}
-            label={t('ai.summarize')}
-            busy={busy === 'summary'}
-            onClick={() => run('summary')}
-          />
-          <ActionButton
-            icon={TrendingUp}
-            label={t('ai.analyzeTrends')}
-            busy={busy === 'trend'}
-            disabled={!hasHistory}
-            hint={!hasHistory ? t('ai.needHistory') : undefined}
-            onClick={() => run('trend')}
-          />
-        </div>
+      {/* the AI entry point is the chat — one place, opened from here or the header */}
+      {cfg.configured && !showConfig && (
+        <button onClick={onOpenChat}
+          className="mt-4 flex items-center gap-2 rounded-lg bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-black">
+          <Sparkles size={15} /> {t('ai.openChat')}
+        </button>
       )}
-
-      {summary && <AIOutput title={t('ai.priorities')} text={summary} />}
-      {trend && <AIOutput title={t('ai.trendAnalysis')} text={trend} />}
     </Card>
-  )
-}
-
-function ActionButton({
-  icon: Icon,
-  label,
-  busy,
-  disabled,
-  hint,
-  onClick,
-}: {
-  icon: typeof Sparkles
-  label: string
-  busy: boolean
-  disabled?: boolean
-  hint?: string
-  onClick: () => void
-}) {
-  const { t } = useT()
-  return (
-    <button
-      onClick={onClick}
-      disabled={busy || disabled}
-      title={hint}
-      className={cn(
-        'flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm',
-        disabled
-          ? 'border-[var(--color-border)] text-[var(--color-ink-faint)] cursor-not-allowed'
-          : 'border-[var(--color-accent)] text-[var(--color-accent)] hover:bg-[var(--color-accent-soft)]',
-      )}
-    >
-      <Icon size={15} />
-      {busy ? t('ai.thinking') : label}
-    </button>
-  )
-}
-
-function AIOutput({ title, text }: { title: string; text: string }) {
-  return (
-    <div className="mt-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] p-4">
-      <div className="mb-2 text-xs uppercase tracking-wide text-[var(--color-ink-faint)]">{title}</div>
-      <div className="whitespace-pre-wrap text-sm leading-relaxed text-[var(--color-ink)]">{text}</div>
-    </div>
   )
 }
 

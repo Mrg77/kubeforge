@@ -97,7 +97,7 @@ export default function App() {
           {tab === 'storage' && <Storage />}
           {tab === 'secops' && <SecOps />}
           {tab === 'finops' && <FinOps />}
-          {tab === 'insights' && <Insights />}
+          {tab === 'insights' && <Insights onOpenChat={() => setAiOpen(true)} />}
         </main>
       </div>
     </div>
