@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -40,6 +41,13 @@ type Snapshot struct {
 	// FinOps
 	MonthlyReserved float64 `json:"monthlyReserved"`
 	MonthlyWasted   float64 `json:"monthlyWasted"`
+
+	// Capacity vs. usage, aggregated across pods (cores). These two series drive
+	// the "reserved vs used" band in the trend chart: the gap between them IS the
+	// waste, drawn widening or closing over time. Zero when metrics-server is
+	// unavailable (usage unknown).
+	CPUReserved float64 `json:"cpuReserved"`
+	CPUUsed     float64 `json:"cpuUsed"`
 }
 
 // Store is the history database.
@@ -79,7 +87,7 @@ func Open() (*Store, error) {
 }
 
 func (s *Store) migrate() error {
-	_, err := s.db.Exec(`
+	if _, err := s.db.Exec(`
 CREATE TABLE IF NOT EXISTS snapshots (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   context TEXT NOT NULL,
@@ -88,8 +96,25 @@ CREATE TABLE IF NOT EXISTS snapshots (
   sec_critical INTEGER, sec_high INTEGER, sec_medium INTEGER,
   monthly_reserved REAL, monthly_wasted REAL
 );
-CREATE INDEX IF NOT EXISTS idx_snapshots_ctx_ts ON snapshots(context, ts);`)
-	return err
+CREATE INDEX IF NOT EXISTS idx_snapshots_ctx_ts ON snapshots(context, ts);`); err != nil {
+		return err
+	}
+	// Additive columns for the reserved-vs-used band. ADD COLUMN on an existing
+	// table is how SQLite does light migrations; ignore the "duplicate column"
+	// error so this stays idempotent across restarts and older databases.
+	for _, col := range []string{
+		`ALTER TABLE snapshots ADD COLUMN cpu_reserved REAL DEFAULT 0`,
+		`ALTER TABLE snapshots ADD COLUMN cpu_used REAL DEFAULT 0`,
+	} {
+		if _, err := s.db.Exec(col); err != nil && !isDupColumn(err) {
+			return err
+		}
+	}
+	return nil
+}
+
+func isDupColumn(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "duplicate column")
 }
 
 // Record persists a snapshot.
@@ -98,10 +123,11 @@ func (s *Store) Record(ctx context.Context, snap Snapshot) error {
 		return fmt.Errorf("snapshot has no time")
 	}
 	_, err := s.db.ExecContext(ctx, `
-INSERT INTO snapshots (context, ts, pods, unhealthy, restarts, sec_critical, sec_high, sec_medium, monthly_reserved, monthly_wasted)
-VALUES (?,?,?,?,?,?,?,?,?,?)`,
+INSERT INTO snapshots (context, ts, pods, unhealthy, restarts, sec_critical, sec_high, sec_medium, monthly_reserved, monthly_wasted, cpu_reserved, cpu_used)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
 		snap.Context, snap.Time.Unix(), snap.Pods, snap.Unhealthy, snap.Restarts,
-		snap.SecCritical, snap.SecHigh, snap.SecMedium, snap.MonthlyReserved, snap.MonthlyWasted)
+		snap.SecCritical, snap.SecHigh, snap.SecMedium, snap.MonthlyReserved, snap.MonthlyWasted,
+		snap.CPUReserved, snap.CPUUsed)
 	return err
 }
 
@@ -109,7 +135,7 @@ VALUES (?,?,?,?,?,?,?,?,?,?)`,
 // material for trend charts and AI trend analysis.
 func (s *Store) Since(ctx context.Context, clusterCtx string, t time.Time) ([]Snapshot, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id, ts, pods, unhealthy, restarts, sec_critical, sec_high, sec_medium, monthly_reserved, monthly_wasted
+SELECT id, ts, pods, unhealthy, restarts, sec_critical, sec_high, sec_medium, monthly_reserved, monthly_wasted, cpu_reserved, cpu_used
 FROM snapshots WHERE context = ? AND ts >= ? ORDER BY ts ASC`, clusterCtx, t.Unix())
 	if err != nil {
 		return nil, err
@@ -121,7 +147,8 @@ FROM snapshots WHERE context = ? AND ts >= ? ORDER BY ts ASC`, clusterCtx, t.Uni
 		var s Snapshot
 		var ts int64
 		if err := rows.Scan(&s.ID, &ts, &s.Pods, &s.Unhealthy, &s.Restarts,
-			&s.SecCritical, &s.SecHigh, &s.SecMedium, &s.MonthlyReserved, &s.MonthlyWasted); err != nil {
+			&s.SecCritical, &s.SecHigh, &s.SecMedium, &s.MonthlyReserved, &s.MonthlyWasted,
+			&s.CPUReserved, &s.CPUUsed); err != nil {
 			return nil, err
 		}
 		s.Time = time.Unix(ts, 0)

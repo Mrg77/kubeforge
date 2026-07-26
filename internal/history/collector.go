@@ -68,6 +68,14 @@ func (c *Collector) collectOnce(ctx context.Context) {
 	if rep, err := finops.Scan(cctx, c.cluster.Kube, c.cluster.Metrics, finops.Prices{}); err == nil {
 		snap.MonthlyReserved = rep.TotalMonthly
 		snap.MonthlyWasted = rep.WastedMonthly
+		// Aggregate reserved vs. used CPU for the trend band. Only meaningful when
+		// metrics are available; otherwise usage stays 0 and the UI hides the band.
+		if rep.MetricsAvailable {
+			for _, p := range rep.Pods {
+				snap.CPUReserved += p.CPURequest
+				snap.CPUUsed += p.CPUUsage
+			}
+		}
 	}
 
 	if err := c.store.Record(cctx, snap); err != nil {

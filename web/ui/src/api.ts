@@ -110,6 +110,8 @@ export interface Snapshot {
   secMedium: number
   monthlyReserved: number
   monthlyWasted: number
+  cpuReserved: number
+  cpuUsed: number
 }
 
 export interface AIConfig {

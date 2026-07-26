@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts'
+import {
+  LineChart, Line, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
+} from 'recharts'
 import { Sparkles, TrendingUp, Settings } from 'lucide-react'
 import { api, type Snapshot, type AIConfig } from '../api'
 import { Card, Spinner, ErrorNote, cn } from '../lib'
@@ -243,18 +245,26 @@ function TrendCharts({ history }: { history: Snapshot[] }) {
     critical: s.secCritical,
     high: s.secHigh,
     unhealthy: s.unhealthy,
+    // CPU band: reserved is the ceiling, used is the floor; the shaded gap
+    // between them is idle capacity you pay for. Rounded to 0.01 core.
+    cpuReserved: Math.round(s.cpuReserved * 100) / 100,
+    cpuUsed: Math.round(s.cpuUsed * 100) / 100,
+    cpuGap: Math.round((s.cpuReserved - s.cpuUsed) * 100) / 100,
   }))
+  const hasCPU = data.some((d) => d.cpuReserved > 0)
 
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
+    <div className="flex flex-col gap-6">
+      {hasCPU && <ReservedVsUsedBand data={data} />}
+      <div className="grid gap-6 lg:grid-cols-2">
       <TrendCard title="Cost over time ($/mo)">
         <LineChart data={data}>
           <XAxis dataKey="t" stroke="var(--color-ink-faint)" fontSize={10} />
           <YAxis stroke="var(--color-ink-faint)" fontSize={10} />
           <Tooltip {...tooltip} />
           <Legend wrapperStyle={{ fontSize: 11 }} />
-          <Line type="monotone" dataKey="reserved" stroke="var(--color-info)" dot={false} strokeWidth={2} />
-          <Line type="monotone" dataKey="wasted" stroke="var(--color-warn)" dot={false} strokeWidth={2} />
+          <Line type="monotone" dataKey="reserved" stroke="var(--color-info)" dot={false} strokeWidth={2} isAnimationActive={false} />
+          <Line type="monotone" dataKey="wasted" stroke="var(--color-warn)" dot={false} strokeWidth={2} isAnimationActive={false} />
         </LineChart>
       </TrendCard>
       <TrendCard title="Security findings over time">
@@ -263,11 +273,57 @@ function TrendCharts({ history }: { history: Snapshot[] }) {
           <YAxis stroke="var(--color-ink-faint)" fontSize={10} allowDecimals={false} />
           <Tooltip {...tooltip} />
           <Legend wrapperStyle={{ fontSize: 11 }} />
-          <Line type="monotone" dataKey="critical" stroke="var(--color-crit)" dot={false} strokeWidth={2} />
-          <Line type="monotone" dataKey="high" stroke="var(--color-warn)" dot={false} strokeWidth={2} />
+          <Line type="monotone" dataKey="critical" stroke="var(--color-crit)" dot={false} strokeWidth={2} isAnimationActive={false} />
+          <Line type="monotone" dataKey="high" stroke="var(--color-warn)" dot={false} strokeWidth={2} isAnimationActive={false} />
         </LineChart>
       </TrendCard>
+      </div>
     </div>
+  )
+}
+
+// ReservedVsUsedBand is the signature trend chart: reserved CPU as the outer
+// band, used CPU stacked below it, so the shaded space in between is exactly the
+// idle capacity you're paying for — drawn widening when waste creeps in and
+// closing when a right-size lands. This is the picture k9s and Lens can't draw:
+// they have no memory. Stacked areas (used + gap) so the top edge is `reserved`.
+function ReservedVsUsedBand({ data }: { data: Record<string, number | string>[] }) {
+  return (
+    <Card className="p-5">
+      <div className="mb-1 flex items-baseline justify-between">
+        <div className="text-sm font-medium">CPU reserved vs. used (cores)</div>
+        <div className="text-xs text-[var(--color-ink-faint)]">
+          shaded gap = idle capacity you pay for
+        </div>
+      </div>
+      <ResponsiveContainer width="100%" height={260}>
+        <AreaChart data={data}>
+          <defs>
+            <linearGradient id="usedFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--color-ok)" stopOpacity={0.55} />
+              <stop offset="100%" stopColor="var(--color-ok)" stopOpacity={0.15} />
+            </linearGradient>
+            <linearGradient id="gapFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--color-warn)" stopOpacity={0.4} />
+              <stop offset="100%" stopColor="var(--color-warn)" stopOpacity={0.08} />
+            </linearGradient>
+          </defs>
+          <XAxis dataKey="t" stroke="var(--color-ink-faint)" fontSize={10} />
+          <YAxis stroke="var(--color-ink-faint)" fontSize={10} />
+          <Tooltip {...tooltip} />
+          <Legend wrapperStyle={{ fontSize: 11 }} />
+          {/* Stack order: used (floor) then gap; the top of the stack = reserved. */}
+          <Area
+            type="monotone" dataKey="cpuUsed" name="used" stackId="cpu"
+            stroke="var(--color-ok)" strokeWidth={2} fill="url(#usedFill)" isAnimationActive={false}
+          />
+          <Area
+            type="monotone" dataKey="cpuGap" name="idle (reserved − used)" stackId="cpu"
+            stroke="var(--color-warn)" strokeWidth={1} fill="url(#gapFill)" isAnimationActive={false}
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    </Card>
   )
 }
 
