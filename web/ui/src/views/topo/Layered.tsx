@@ -82,7 +82,16 @@ export function Layered() {
         </span>
       </div>
 
-      {!graph ? <Spinner /> : <Stack graph={graph} hover={hover} setHover={setHover} />}
+      {!graph ? (
+        <Spinner />
+      ) : graph.nodes.length === 0 ? (
+        <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-10 text-center text-sm text-[var(--color-ink-dim)]">
+          Nothing to show — <span className="mono">{graph.namespace}</span> has no workloads or
+          resources yet.
+        </div>
+      ) : (
+        <Stack graph={graph} hover={hover} setHover={setHover} />
+      )}
     </div>
   )
 }
@@ -130,9 +139,13 @@ function Stack({ graph, hover, setHover }: {
     return m
   }, [graph])
   const lit = hover ? new Set([hover, ...(adj.get(hover) ?? [])]) : null
+  const hoveredNode = hover ? graph.nodes.find((n) => n.id === hover) : null
 
   return (
-    <div className="overflow-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-2">
+    <div className="relative overflow-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-2">
+      {hoveredNode && (hoveredNode.info?.length ?? 0) > 0 && (
+        <DetailPanel node={hoveredNode} />
+      )}
       <svg width={layout.width} height={layout.height} style={{ minWidth: '100%' }}>
         <defs>
           <marker id="arrow" markerWidth="7" markerHeight="7" refX="5.5" refY="3" orient="auto">
@@ -202,6 +215,31 @@ function Stack({ graph, hover, setHover }: {
           )
         })}
       </svg>
+    </div>
+  )
+}
+
+// DetailPanel floats in the top-right corner and shows the hovered resource's
+// facts (IP, node, ports, capacity, estimated monthly cost…). Pinned to the
+// container so it never scrolls off with a wide graph.
+function DetailPanel({ node }: { node: GraphNode }) {
+  const meta = kindOf(node.kind)
+  return (
+    <div className="pointer-events-none absolute right-3 top-3 z-10 w-64 rounded-lg border bg-[var(--color-bg)] p-3 shadow-xl"
+      style={{ borderColor: meta.c }}>
+      <div className="mb-2 flex items-center gap-2">
+        <span>{meta.icon}</span>
+        <span className="mono text-xs font-semibold text-[var(--color-ink)]">{node.name}</span>
+      </div>
+      <div className="mb-2 text-[10px] uppercase tracking-wide" style={{ color: meta.c }}>{node.kind}</div>
+      <div className="flex flex-col gap-1">
+        {node.info!.map((row) => (
+          <div key={row.k} className="flex items-baseline justify-between gap-3 text-[11px]">
+            <span className="text-[var(--color-ink-faint)]">{row.k}</span>
+            <span className="mono text-right text-[var(--color-ink)]">{row.v}</span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

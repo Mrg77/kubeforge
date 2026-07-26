@@ -55,6 +55,7 @@ export interface GraphNode {
   layer: string
   healthy: boolean
   detail: string
+  info?: { k: string; v: string }[]
 }
 export interface GraphEdge {
   from: string

@@ -38,6 +38,16 @@ type GraphNode struct {
 	Layer   string `json:"layer"`   // which band it sits in
 	Healthy bool   `json:"healthy"` // for status coloring (pods/workloads mainly)
 	Detail  string `json:"detail"`  // small subtitle (type, replicas, phase…)
+	// Meta is a set of type-specific facts surfaced in the hover panel (IP,
+	// node, ports, capacity, image, estimated monthly cost…). Order-preserving
+	// via the Info slice so the UI can render label/value rows predictably.
+	Info []KV `json:"info,omitempty"`
+}
+
+// KV is one label/value fact shown in the detail panel.
+type KV struct {
+	K string `json:"k"`
+	V string `json:"v"`
 }
 
 // GraphEdge is a directed reference from → to (drawn top-down).
@@ -80,7 +90,9 @@ func (c *Client) LayeredNamespace(ctx context.Context, ns string) (*LayeredGraph
 	if ns == "" {
 		return nil, fmt.Errorf("a namespace is required for the layered view")
 	}
-	g := &LayeredGraph{Namespace: ns, Layers: layerOrder}
+	// Initialize the slices so an empty namespace serializes as [] not null
+	// (a null broke the frontend layout).
+	g := &LayeredGraph{Namespace: ns, Layers: layerOrder, Nodes: []GraphNode{}, Edges: []GraphEdge{}}
 	seen := map[string]bool{}
 	add := func(n GraphNode) {
 		if !seen[n.ID] {
@@ -110,7 +122,7 @@ func (c *Client) LayeredNamespace(ctx context.Context, ns string) (*LayeredGraph
 		id := nodeID("Pod", ns, p.Name)
 		podID[p.Name] = id
 		podLabels[p.Name] = labels.Set(p.Labels)
-		add(GraphNode{ID: id, Kind: "Pod", Name: p.Name, Layer: "pod", Healthy: sum.Healthy, Detail: sum.Status})
+		add(GraphNode{ID: id, Kind: "Pod", Name: p.Name, Layer: "pod", Healthy: sum.Healthy, Detail: sum.Status, Info: podInfo(p)})
 
 		// Pod → its ReplicaSet/StatefulSet/DaemonSet owner (workload layer)
 		for _, ref := range p.OwnerReferences {
@@ -212,6 +224,51 @@ func (c *Client) LayeredNamespace(ctx context.Context, ns string) (*LayeredGraph
 		}
 	}
 
+	// ---- CronJobs (own the Jobs already drawn) ----
+	if cjs, err := c.Kube.BatchV1().CronJobs(ns).List(ctx, metav1.ListOptions{}); err == nil {
+		for i := range cjs.Items {
+			cj := &cjs.Items[i]
+			cjID := nodeID("CronJob", ns, cj.Name)
+			add(GraphNode{ID: cjID, Kind: "CronJob", Name: cj.Name, Layer: "workload", Healthy: true,
+				Detail: cj.Spec.Schedule, Info: []KV{{K: "Schedule", V: cj.Spec.Schedule}}})
+			// link to any Job it owns that we've drawn
+			for _, n := range g.Nodes {
+				if n.Kind == "Job" && hasPrefix(n.Name, cj.Name+"-") {
+					link(cjID, n.ID, "owns")
+				}
+			}
+		}
+	}
+
+	// ---- HorizontalPodAutoscalers → their target workload ----
+	if hpas, err := c.Kube.AutoscalingV2().HorizontalPodAutoscalers(ns).List(ctx, metav1.ListOptions{}); err == nil {
+		for i := range hpas.Items {
+			h := &hpas.Items[i]
+			hID := nodeID("HorizontalPodAutoscaler", ns, h.Name)
+			detail := fmt.Sprintf("%d–%d replicas", ptrInt32(h.Spec.MinReplicas, 1), h.Spec.MaxReplicas)
+			add(GraphNode{ID: hID, Kind: "HorizontalPodAutoscaler", Name: h.Name, Layer: "governance", Healthy: true,
+				Detail: detail, Info: []KV{
+					{K: "Target", V: h.Spec.ScaleTargetRef.Kind + "/" + h.Spec.ScaleTargetRef.Name},
+					{K: "Range", V: detail},
+					{K: "Current", V: fmt.Sprintf("%d replicas", h.Status.CurrentReplicas)},
+				}})
+			tID := nodeID(h.Spec.ScaleTargetRef.Kind, ns, h.Spec.ScaleTargetRef.Name)
+			if seen[tID] {
+				link(hID, tID, "governs")
+			}
+		}
+	}
+
+	// ---- PodDisruptionBudgets (governance) ----
+	if pdbs, err := c.Kube.PolicyV1().PodDisruptionBudgets(ns).List(ctx, metav1.ListOptions{}); err == nil {
+		for i := range pdbs.Items {
+			pdb := &pdbs.Items[i]
+			add(GraphNode{ID: nodeID("PodDisruptionBudget", ns, pdb.Name), Kind: "PodDisruptionBudget",
+				Name: pdb.Name, Layer: "governance", Healthy: true,
+				Detail: fmt.Sprintf("%d healthy", pdb.Status.CurrentHealthy)})
+		}
+	}
+
 	// ---- Services → the pods they select ----
 	svcTargets := map[string]string{} // service name -> node id (for ingress edges)
 	if svcs, err := core.Services(ns).List(ctx, metav1.ListOptions{}); err == nil {
@@ -219,7 +276,7 @@ func (c *Client) LayeredNamespace(ctx context.Context, ns string) (*LayeredGraph
 			s := &svcs.Items[i]
 			sID := nodeID("Service", ns, s.Name)
 			svcTargets[s.Name] = sID
-			add(GraphNode{ID: sID, Kind: "Service", Name: s.Name, Layer: "service", Healthy: true, Detail: string(s.Spec.Type)})
+			add(GraphNode{ID: sID, Kind: "Service", Name: s.Name, Layer: "service", Healthy: true, Detail: string(s.Spec.Type), Info: svcInfo(s)})
 			if len(s.Spec.Selector) == 0 {
 				continue
 			}
@@ -282,9 +339,23 @@ func (c *Client) LayeredNamespace(ctx context.Context, ns string) (*LayeredGraph
 		for i := range pvcs.Items {
 			pvc := &pvcs.Items[i]
 			pvcID := nodeID("PersistentVolumeClaim", ns, pvc.Name)
+			// Always (re)describe with capacity + estimated storage cost.
+			capGB := 0.0
+			if q, ok := pvc.Status.Capacity[corev1.ResourceStorage]; ok {
+				capGB = float64(q.Value()) / (1024 * 1024 * 1024)
+			} else if q, ok := pvc.Spec.Resources.Requests[corev1.ResourceStorage]; ok {
+				capGB = float64(q.Value()) / (1024 * 1024 * 1024)
+			}
+			pvcInfo := []KV{
+				{K: "Phase", V: string(pvc.Status.Phase)},
+				{K: "Capacity", V: fmt.Sprintf("%.0f Gi", capGB)},
+				{K: "Est. cost", V: fmt.Sprintf("~$%.2f/mo", capGB*0.10)}, // ~$0.10/GB-mo block storage
+			}
+			if pvc.Spec.StorageClassName != nil {
+				pvcInfo = append(pvcInfo, KV{K: "Class", V: *pvc.Spec.StorageClassName})
+			}
 			if !seen[pvcID] {
-				// PVC that isn't mounted by any pod — still worth showing in storage
-				add(GraphNode{ID: pvcID, Kind: "PersistentVolumeClaim", Name: pvc.Name, Layer: "storage", Healthy: true, Detail: string(pvc.Status.Phase)})
+				add(GraphNode{ID: pvcID, Kind: "PersistentVolumeClaim", Name: pvc.Name, Layer: "storage", Healthy: true, Detail: string(pvc.Status.Phase), Info: pvcInfo})
 			}
 			if pvc.Spec.VolumeName != "" {
 				pvID := nodeID("PersistentVolume", "", pvc.Spec.VolumeName)
@@ -326,6 +397,128 @@ func addGovernance(ctx context.Context, c *Client, ns string, add func(GraphNode
 			add(GraphNode{ID: nodeID("LimitRange", ns, lr.Name), Kind: "LimitRange", Name: lr.Name, Layer: "governance", Healthy: true})
 		}
 	}
+}
+
+// ---- detail-panel builders (the hover facts) ------------------------------
+
+// stackPrices mirrors finops defaults; kept local so layers doesn't depend on
+// the finops package. Rough on-demand-ish averages — for ranking, not billing.
+const (
+	priceCPUHour = 0.031
+	priceGBHour  = 0.004
+	hoursMonth   = 730.0
+)
+
+func monthlyCost(cpuCores, memGB float64) float64 {
+	return (cpuCores*priceCPUHour + memGB*priceGBHour) * hoursMonth
+}
+
+// podInfo builds the hover facts for a pod: IP, node, restarts, requests, and an
+// estimated monthly cost of what it reserves.
+func podInfo(p *corev1.Pod) []KV {
+	var restarts int32
+	for _, cs := range p.Status.ContainerStatuses {
+		restarts += cs.RestartCount
+	}
+	cpu, mem := podRequests(p)
+	info := []KV{
+		{K: "Pod IP", V: orDash(p.Status.PodIP)},
+		{K: "Node", V: orDash(p.Spec.NodeName)},
+		{K: "Phase", V: string(p.Status.Phase)},
+		{K: "Restarts", V: fmt.Sprintf("%d", restarts)},
+	}
+	if len(p.Spec.Containers) > 0 {
+		info = append(info, KV{K: "Image", V: shortImage(p.Spec.Containers[0].Image)})
+	}
+	if cpu > 0 || mem > 0 {
+		info = append(info,
+			KV{K: "Requests", V: fmt.Sprintf("%.0fm CPU · %.0fMi", cpu*1000, mem*1024)},
+			KV{K: "Est. cost", V: fmt.Sprintf("~$%.2f/mo", monthlyCost(cpu, mem))},
+		)
+	}
+	return info
+}
+
+// podRequests sums CPU (cores) and memory (GB) requested across containers.
+func podRequests(p *corev1.Pod) (cpu, memGB float64) {
+	for _, c := range p.Spec.Containers {
+		if q, ok := c.Resources.Requests[corev1.ResourceCPU]; ok {
+			cpu += float64(q.MilliValue()) / 1000
+		}
+		if q, ok := c.Resources.Requests[corev1.ResourceMemory]; ok {
+			memGB += float64(q.Value()) / (1024 * 1024 * 1024)
+		}
+	}
+	return cpu, memGB
+}
+
+func svcInfo(s *corev1.Service) []KV {
+	ports := make([]string, 0, len(s.Spec.Ports))
+	for _, p := range s.Spec.Ports {
+		ports = append(ports, fmt.Sprintf("%d/%s", p.Port, p.Protocol))
+	}
+	info := []KV{
+		{K: "Type", V: string(s.Spec.Type)},
+		{K: "ClusterIP", V: orDash(s.Spec.ClusterIP)},
+		{K: "Ports", V: orDash(joinComma(ports))},
+	}
+	if len(s.Status.LoadBalancer.Ingress) > 0 {
+		ext := s.Status.LoadBalancer.Ingress[0].IP
+		if ext == "" {
+			ext = s.Status.LoadBalancer.Ingress[0].Hostname
+		}
+		info = append(info, KV{K: "External", V: orDash(ext)})
+	}
+	return info
+}
+
+func orDash(s string) string {
+	if s == "" {
+		return "—"
+	}
+	return s
+}
+
+func joinComma(ss []string) string {
+	out := ""
+	for i, s := range ss {
+		if i > 0 {
+			out += ", "
+		}
+		out += s
+	}
+	return out
+}
+
+func shortImage(img string) string {
+	// drop the registry host, keep repo:tag
+	if i := lastSlash(img); i >= 0 {
+		img = img[i+1:]
+	}
+	if len(img) > 28 {
+		img = img[:28] + "…"
+	}
+	return img
+}
+
+func lastSlash(s string) int {
+	for i := len(s) - 1; i >= 0; i-- {
+		if s[i] == '/' {
+			return i
+		}
+	}
+	return -1
+}
+
+func hasPrefix(s, prefix string) bool {
+	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
+}
+
+func ptrInt32(p *int32, def int32) int32 {
+	if p == nil {
+		return def
+	}
+	return *p
 }
 
 // compile-time nudge that appsv1/corev1 stay imported even if a branch is edited out.
