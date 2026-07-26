@@ -33,7 +33,7 @@ export default function App() {
   const [tab, setTabState] = useState<Tab>(initialTab)
   const [cluster, setCluster] = useState<ClusterInfo | null>(null)
   const [err, setErr] = useState<string | null>(null)
-  const [aiOpen, setAiOpen] = useState(false)
+  const [aiOpen, setAiOpen] = useState(() => new URLSearchParams(location.search).get('ai') === 'open')
 
   // Reflect the active tab in the URL so views are deep-linkable and refresh-safe.
   const setTab = (t: Tab) => {

@@ -76,6 +76,40 @@ func (c *Client) Complete(ctx context.Context, system, user string) (string, err
 	}
 }
 
+// Msg is one turn in a chat conversation.
+type Msg struct {
+	Role string `json:"role"` // "user" | "assistant"
+	Text string `json:"text"`
+}
+
+// Chat runs a multi-turn conversation. `system` carries the persona + the live
+// cluster context KubeForge injected; `history` is the prior turns; the last
+// element is the new question. To stay portable across all three provider
+// formats without a big refactor, the turns are flattened into a single user
+// message with role markers (models follow this reliably), keeping the system
+// prompt separate.
+func (c *Client) Chat(ctx context.Context, system string, history []Msg) (string, error) {
+	if !c.cfg.Configured() {
+		return "", fmt.Errorf("AI is not configured")
+	}
+	if len(history) == 0 {
+		return "", fmt.Errorf("no message to answer")
+	}
+	var b strings.Builder
+	for i, m := range history {
+		if i == len(history)-1 && m.Role == "user" {
+			b.WriteString(m.Text) // the current question, plain
+			break
+		}
+		who := "User"
+		if m.Role == "assistant" {
+			who = "Assistant"
+		}
+		fmt.Fprintf(&b, "%s: %s\n\n", who, m.Text)
+	}
+	return c.Complete(ctx, system, b.String())
+}
+
 // Ping makes a tiny real call to verify the key/model/endpoint work, so the UI
 // can say "connected" or show the exact error before the user relies on it.
 func (c *Client) Ping(ctx context.Context) error {

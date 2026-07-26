@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Mrg77/kubeforge/internal/ai"
@@ -66,6 +67,7 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/ai/models", s.handleAIModels)
 	mux.HandleFunc("POST /api/ai/summary", s.handleAISummary)
 	mux.HandleFunc("POST /api/ai/trends", s.handleAITrends)
+	mux.HandleFunc("POST /api/ai/chat", s.handleAIChat)
 	return mux
 }
 
@@ -164,6 +166,94 @@ func (s *Server) handleAIModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"models": models})
+}
+
+// handleAIChat answers a free-form question about the cluster, grounded in the
+// live deterministic scans (health/secops/finops) that KubeForge injects as
+// context. If the question names a pod, its recent events are pulled in too, so
+// "why is X crashing?" gets a real answer. Only aggregated findings + names are
+// sent — never raw objects or secrets.
+func (s *Server) handleAIChat(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
+	defer cancel()
+
+	var in struct {
+		Messages []ai.Msg `json:"messages"`
+		Lang     string   `json:"lang"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || len(in.Messages) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid body"})
+		return
+	}
+	client := ai.New(ai.LoadConfig())
+	if !client.Configured() {
+		writeJSON(w, http.StatusOK, map[string]string{"error": "AI is not configured"})
+		return
+	}
+
+	// Assemble live context from the (cached) scans.
+	cc := s.buildChatContext(ctx, in.Messages[len(in.Messages)-1].Text)
+	system := ai.ChatSystemPrompt(cc, in.Lang)
+
+	text, err := client.Chat(ctx, system, in.Messages)
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"text": text})
+}
+
+// buildChatContext gathers the deterministic cluster data the chat answers from,
+// plus events for any pod the question mentions by name.
+func (s *Server) buildChatContext(ctx context.Context, question string) ai.ChatContext {
+	cc := ai.ChatContext{}
+	if v, err := s.cache.get("secops", time.Now(), func() (any, error) { return secops.Scan(ctx, s.cluster.Kube) }); err == nil {
+		cc.Sec = v.(*secops.Report)
+	}
+	if v, err := s.cache.get("finops::", time.Now(), func() (any, error) {
+		return finops.Scan(ctx, s.cluster.Kube, s.cluster.Metrics, finops.Prices{})
+	}); err == nil {
+		cc.Fin = v.(*finops.Report)
+	}
+	pods, _ := s.cluster.Pods(ctx, "")
+	cc.Pods = len(pods)
+	for _, p := range pods {
+		if !p.Healthy {
+			cc.Unhealthy++
+			cc.Unhealthies = append(cc.Unhealthies, fmt.Sprintf("%s/%s — %s", p.Namespace, p.Name, p.Status))
+		}
+	}
+	// If the question references a pod name, pull its events for real RCA.
+	var evb strings.Builder
+	seen := 0
+	for _, p := range pods {
+		if seen >= 3 {
+			break
+		}
+		if strings.Contains(question, p.Name) || (p.Name != "" && strings.Contains(question, shortName(p.Name))) {
+			if evs, err := s.cluster.ObjectEvents(ctx, p.Namespace, p.Name); err == nil && len(evs) > 0 {
+				fmt.Fprintf(&evb, "%s/%s:\n", p.Namespace, p.Name)
+				for i, e := range evs {
+					if i >= 5 {
+						break
+					}
+					fmt.Fprintf(&evb, "  [%s] %s: %s\n", e.Type, e.Reason, e.Message)
+				}
+				seen++
+			}
+		}
+	}
+	cc.PodEvents = evb.String()
+	return cc
+}
+
+// shortName strips a pod's replica hash suffix ("web-7d4f-abc" -> "web").
+func shortName(name string) string {
+	parts := strings.Split(name, "-")
+	if len(parts) > 2 {
+		return strings.Join(parts[:len(parts)-2], "-")
+	}
+	return name
 }
 
 // handleAISummary runs the deterministic scans and asks the AI for a

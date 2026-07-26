@@ -60,10 +60,13 @@ Le pari est simple : ne pas faire _un énième navigateur de ressources_. Faire 
 
 ## La couche IA — optionnelle, et gratuite
 
-Il y a un bouton **Ask AI** dans le header, sur chaque vue. C'est totalement optionnel et désactivé par défaut. Quand vous l'activez, KubeForge fait deux choses qu'un dashboard classique ne sait pas faire :
+Il y a un bouton **Ask AI** dans le header, sur chaque vue. Il ouvre un **chat avec votre cluster** — posez n'importe quelle question et obtenez une réponse ancrée dans les scans en direct, pas une supposition :
 
-1. **Résumer & prioriser** — transformer un mur de findings en « voici les trois choses à corriger en premier, et pourquoi », en nommant les vrais workloads.
-2. **Analyser les tendances** — lire l'historique et vous donner la _direction_ en clair : est-ce que ça empire, qu'est-ce qui l'a probablement causé (un déploiement à telle heure ?), et quoi vérifier.
+- _« Pourquoi `payments` est en panne ? »_ → il lit les **events** du pod et vous dit : `ImagePullBackOff`, le tag d'image n'existe pas, voici le `kubectl` pour confirmer.
+- _« Où je gaspille le plus ? »_ → il lit le **FinOps** et nomme le workload, l'écart réservé-vs-utilisé, et un extrait `resources:` prêt à appliquer.
+- _« Y a-t-il des points faibles dans mon archi ? »_ → il lit la posture et la topologie et pointe les vrais risques.
+
+Des questions suggérées vous lancent en un clic, et c'est une vraie conversation multi-tours (posez des questions de suivi). Sous le capot, chaque question est répondue à partir des scans déterministes (santé/sécurité/coût) plus les events de tout pod que vous nommez — l'IA **explique et corrige**, elle n'invente jamais de findings.
 
 **Pas besoin de payer.** Choisissez n'importe quel fournisseur — **Gemini** et **Groq** donnent une **clé API gratuite** (sans carte), et ils sont mis en avant. **Claude, ChatGPT, Mistral, DeepSeek, Grok, OpenRouter** et n'importe quel **endpoint compatible OpenAI custom** (LiteLLM/vLLM auto-hébergé…) sont là aussi, pour ceux qui ont déjà une clé API payante. Un abonnement chat (Claude Max, ChatGPT Plus) n'**inclut pas** l'accès API — KubeForge vous le dit au lieu de vous laisser tomber sur une erreur cryptique « pas de crédit ». Saisissez votre clé, cliquez **charger mes modèles** pour récupérer votre vraie liste, **testez la connexion**, enregistrez.
 

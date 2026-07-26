@@ -273,4 +273,6 @@ export const api = {
     post<{ models?: string[]; error?: string }>('/api/ai/models', c),
   aiSummary: (lang: string) => post<{ text?: string; error?: string }>(`/api/ai/summary?lang=${lang}`),
   aiTrends: (lang: string) => post<{ text?: string; error?: string }>(`/api/ai/trends?lang=${lang}`),
+  aiChat: (messages: { role: string; text: string }[], lang: string) =>
+    post<{ text?: string; error?: string }>('/api/ai/chat', { messages, lang }),
 }

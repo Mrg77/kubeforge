@@ -60,10 +60,13 @@ The bet is simple: don't build _yet another resource browser_. Build the three o
 
 ## The AI layer — opt-in, and free to use
 
-There's an **Ask AI** button in the header on every view. It's completely optional and off by default. When you turn it on, KubeForge does two things a plain dashboard can't:
+There's an **Ask AI** button in the header on every view. It opens a **chat with your cluster** — ask anything and get an answer grounded in the live scans, not a guess:
 
-1. **Summarize & prioritize** — turn a wall of findings into "here are the three things to fix first, and why", naming the actual workloads.
-2. **Analyze trends** — read the recorded history and tell you the _direction_ in plain words: is it getting worse, what likely caused it (a deployment around a given time?), and what to check.
+- _"Why is `payments` failing?"_ → it reads the pod's **events** and tells you: `ImagePullBackOff`, the image tag doesn't exist, here's the `kubectl` to confirm.
+- _"Where am I wasting the most?"_ → it reads **FinOps** and names the workload, the reserved-vs-used gap, and a ready-to-apply `resources:` snippet.
+- _"Any weak points in my setup?"_ → it reads the posture and topology and points at the real risks.
+
+Suggested questions get you started in one click, and it's a real multi-turn conversation (ask follow-ups). Under the hood, each question is answered from the deterministic scans (health/security/cost) plus the events of any pod you name — so the AI **explains and fixes**, it never invents findings.
 
 **No need to pay.** Pick any provider — **Gemini** and **Groq** hand out a **free API key** (no card), and they're surfaced first. **Claude, ChatGPT, Mistral, DeepSeek, Grok, OpenRouter** and any **Custom OpenAI-compatible endpoint** (self-hosted LiteLLM/vLLM, …) are there too for those who already have a paid API key. A chat subscription (Claude Max, ChatGPT Plus) does **not** include API access — KubeForge says so instead of letting you hit a cryptic "no credit" error. Enter your key, click **load my models** to pull your real model list, **Test connection**, save.
 

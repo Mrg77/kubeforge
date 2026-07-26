@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Sparkles, X, TrendingUp, Settings } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Sparkles, X, Settings, Send } from 'lucide-react'
 import { api, type AIConfig } from './api'
 import { useT } from './i18n'
 
@@ -32,31 +32,51 @@ export function AIButton({ onOpen }: { onOpen: () => void }) {
   )
 }
 
+interface ChatMsg { role: 'user' | 'assistant'; text: string }
+
 export function AIDrawer({ open, onClose, onGoInsights }: {
   open: boolean
   onClose: () => void
   onGoInsights: () => void
 }) {
-  const { locale } = useT()
+  const { t, locale } = useT()
   const [cfg, setCfg] = useState<AIConfig | null>(null)
-  const [out, setOut] = useState<{ kind: string; text: string } | null>(null)
-  const [busy, setBusy] = useState<string | null>(null)
+  const [msgs, setMsgs] = useState<ChatMsg[]>([])
+  const [input, setInput] = useState('')
+  const [busy, setBusy] = useState(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (open && !cfg) api.aiConfig().then(setCfg).catch(() => setCfg({ configured: false, provider: 'anthropic', model: '' }))
   }, [open, cfg])
 
-  const run = async (kind: 'summary' | 'trend') => {
-    setBusy(kind)
-    setOut(null)
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
+  }, [msgs, busy])
+
+  // Suggested starter questions — the common DevOps asks, one click.
+  const suggestions = [
+    t('chat.q.summary'),
+    t('chat.q.waste'),
+    t('chat.q.unhealthy'),
+    t('chat.q.arch'),
+  ]
+
+  const send = async (text: string) => {
+    const q = text.trim()
+    if (!q || busy) return
+    const next = [...msgs, { role: 'user' as const, text: q }]
+    setMsgs(next)
+    setInput('')
+    setBusy(true)
     try {
-      const res = kind === 'summary' ? await api.aiSummary(locale) : await api.aiTrends(locale)
+      const res = await api.aiChat(next, locale)
       if (res.error) throw new Error(res.error)
-      setOut({ kind, text: res.text! })
+      setMsgs([...next, { role: 'assistant', text: res.text! }])
     } catch (e) {
-      setOut({ kind, text: '⚠ ' + String((e as Error).message ?? e) })
+      setMsgs([...next, { role: 'assistant', text: '⚠ ' + String((e as Error).message ?? e) }])
     } finally {
-      setBusy(null)
+      setBusy(false)
     }
   }
 
@@ -64,83 +84,86 @@ export function AIDrawer({ open, onClose, onGoInsights }: {
 
   return (
     <>
-      {/* scrim */}
-      <div
-        className="fixed inset-0 z-40 bg-black/50"
-        onClick={onClose}
-      />
-      {/* drawer */}
-      <aside className="fixed right-0 top-0 z-50 flex h-full w-full max-w-md flex-col border-l border-[var(--color-border)] bg-[var(--color-surface)] shadow-2xl">
+      <div className="fixed inset-0 z-40 bg-black/50" onClick={onClose} />
+      <aside className="fixed right-0 top-0 z-50 flex h-full w-full max-w-lg flex-col border-l border-[var(--color-border)] bg-[var(--color-surface)] shadow-2xl">
         <header className="flex items-center gap-2 border-b border-[var(--color-border)] px-5 py-4">
           <Sparkles size={18} style={{ color: 'var(--color-accent)' }} />
-          <span className="font-medium">AI analysis</span>
-          <button onClick={onClose} className="ml-auto text-[var(--color-ink-dim)] hover:text-[var(--color-ink)]">
+          <span className="font-medium">{t('chat.title')}</span>
+          {cfg?.configured && <span className="text-[11px] text-[var(--color-ink-faint)] mono">{cfg.model}</span>}
+          {msgs.length > 0 && (
+            <button onClick={() => setMsgs([])} className="ml-auto text-[11px] text-[var(--color-ink-dim)] hover:text-[var(--color-ink)]">
+              {t('chat.clear')}
+            </button>
+          )}
+          <button onClick={onClose} className={msgs.length > 0 ? 'text-[var(--color-ink-dim)] hover:text-[var(--color-ink)]' : 'ml-auto text-[var(--color-ink-dim)] hover:text-[var(--color-ink)]'}>
             <X size={18} />
           </button>
         </header>
 
-        <div className="flex-1 overflow-auto p-5">
-          <p className="text-sm text-[var(--color-ink-dim)]">
-            Opt-in, bring-your-own-key. KubeForge sends the <em>findings</em> — counts, titles,
-            trends — to your model, never raw cluster objects or secrets.
-          </p>
-
-          {cfg && !cfg.configured && (
-            <div className="mt-5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] p-4 text-sm">
-              <div className="mb-2 font-medium">Not configured yet</div>
-              <p className="text-[var(--color-ink-dim)]">
-                Add a provider and API key (Anthropic, or any OpenAI-compatible endpoint including a
-                local Ollama) to enable analysis.
-              </p>
-              <button
-                onClick={() => { onClose(); onGoInsights() }}
-                className="mt-3 flex items-center gap-2 rounded-lg bg-[var(--color-accent)] px-3 py-1.5 text-sm font-medium text-black"
-              >
-                <Settings size={14} /> Set up in Insights
-              </button>
+        {/* not configured → point to setup */}
+        {cfg && !cfg.configured ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
+            <Sparkles size={28} style={{ color: 'var(--color-accent)' }} />
+            <div className="text-sm font-medium">{t('chat.notConfigured')}</div>
+            <p className="text-xs text-[var(--color-ink-dim)]">{t('chat.notConfiguredSub')}</p>
+            <button onClick={() => { onClose(); onGoInsights() }}
+              className="mt-1 flex items-center gap-2 rounded-lg bg-[var(--color-accent)] px-3 py-1.5 text-sm font-medium text-black">
+              <Settings size={14} /> {t('chat.setup')}
+            </button>
+          </div>
+        ) : (
+          <>
+            {/* conversation */}
+            <div ref={scrollRef} className="flex-1 overflow-auto p-5">
+              {msgs.length === 0 ? (
+                <div className="flex flex-col gap-3">
+                  <p className="text-sm text-[var(--color-ink-dim)]">{t('chat.intro')}</p>
+                  <div className="flex flex-col gap-2">
+                    {suggestions.map((s) => (
+                      <button key={s} onClick={() => send(s)}
+                        className="flex items-center gap-2 rounded-lg border border-[var(--color-border)] px-3 py-2 text-left text-sm text-[var(--color-ink-dim)] hover:border-[var(--color-accent)] hover:text-[var(--color-ink)]">
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-1 text-[11px] text-[var(--color-ink-faint)]">{t('chat.privacy')}</p>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-4">
+                  {msgs.map((m, i) => (
+                    <div key={i} className={m.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
+                      <div className={m.role === 'user'
+                        ? 'max-w-[85%] rounded-lg rounded-br-sm bg-[var(--color-accent-soft)] px-3 py-2 text-sm text-[var(--color-ink)]'
+                        : 'max-w-[92%] whitespace-pre-wrap rounded-lg rounded-bl-sm border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm leading-relaxed text-[var(--color-ink)]'}>
+                        {m.text}
+                      </div>
+                    </div>
+                  ))}
+                  {busy && <div className="text-xs text-[var(--color-ink-faint)]">{t('chat.thinking')}</div>}
+                </div>
+              )}
             </div>
-          )}
 
-          {cfg?.configured && (
-            <div className="mt-5 flex flex-col gap-2">
-              <DrawerAction label="Summarize & prioritize findings" busy={busy === 'summary'} onClick={() => run('summary')} icon={Sparkles} />
-              <DrawerAction label="Analyze trends over time" busy={busy === 'trend'} onClick={() => run('trend')} icon={TrendingUp} />
-              <span className="text-[11px] text-[var(--color-ink-faint)]">
-                model: <span className="mono">{cfg.model}</span>
-              </span>
-            </div>
-          )}
-
-          {out && (
-            <div className="mt-5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] p-4">
-              <div className="mb-2 text-xs uppercase tracking-wide text-[var(--color-ink-faint)]">
-                {out.kind === 'summary' ? 'Priorities' : 'Trend analysis'}
+            {/* input */}
+            <div className="border-t border-[var(--color-border)] p-3">
+              <div className="flex items-end gap-2">
+                <textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input) } }}
+                  rows={1}
+                  placeholder={t('chat.placeholder')}
+                  className="max-h-32 flex-1 resize-none rounded-lg bg-[var(--color-surface-2)] px-3 py-2 text-sm outline-none"
+                />
+                <button onClick={() => send(input)} disabled={busy || !input.trim()}
+                  className="rounded-lg bg-[var(--color-accent)] p-2 text-black disabled:opacity-40">
+                  <Send size={16} />
+                </button>
               </div>
-              <div className="whitespace-pre-wrap text-sm leading-relaxed text-[var(--color-ink)]">
-                {out.text}
-              </div>
             </div>
-          )}
-        </div>
+          </>
+        )}
       </aside>
     </>
-  )
-}
-
-function DrawerAction({ label, busy, onClick, icon: Icon }: {
-  label: string
-  busy: boolean
-  onClick: () => void
-  icon: typeof Sparkles
-}) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={busy}
-      className="flex items-center gap-2 rounded-lg border border-[var(--color-accent)] px-3 py-2 text-sm text-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] disabled:opacity-50"
-    >
-      <Icon size={15} />
-      {busy ? 'thinking…' : label}
-    </button>
   )
 }

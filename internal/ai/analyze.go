@@ -133,6 +133,63 @@ Write a short trend read for a DevOps engineer. Rules:
 	return c.Complete(ctx, systemPromptFor(lang), user)
 }
 
+// ChatContext is the live cluster data KubeForge injects into a chat so the AI
+// answers from reality, not guesses. It's assembled from the deterministic scans
+// and passed to Chat() as part of the system prompt. Only aggregated findings +
+// names — never raw objects, env vars, or secrets.
+type ChatContext struct {
+	Pods        int
+	Unhealthy   int
+	Sec         *secops.Report
+	Fin         *finops.Report
+	Provider    string   // detected cloud (for cost honesty)
+	Unhealthies []string // "ns/name — status" for each unhealthy pod
+	PodEvents   string   // events for pods the question referenced, if any
+}
+
+// ChatSystemPrompt builds the system prompt for the cluster chat: the persona,
+// the honesty rules, the language, and the live cluster context.
+func ChatSystemPrompt(cc ChatContext, lang string) string {
+	var b strings.Builder
+	b.WriteString(systemPromptFor(lang))
+	b.WriteString("\n\nYou are answering questions about THIS Kubernetes cluster. Ground every answer in the data below; if the data doesn't cover the question, say what you'd need to check (which command/resource) rather than guessing. Keep answers tight and practical. When useful, give the exact kubectl command or a small YAML snippet.\n")
+
+	fmt.Fprintf(&b, "\n=== LIVE CLUSTER CONTEXT ===\n")
+	fmt.Fprintf(&b, "Health: %d pods, %d unhealthy.\n", cc.Pods, cc.Unhealthy)
+	for _, u := range cc.Unhealthies {
+		fmt.Fprintf(&b, "  unhealthy: %s\n", u)
+	}
+	if cc.Sec != nil {
+		fmt.Fprintf(&b, "Security (your workloads, excl. system): %d critical, %d high, %d medium.\n",
+			cc.Sec.OwnCounts.Critical, cc.Sec.OwnCounts.High, cc.Sec.OwnCounts.Medium)
+		shown := 0
+		for _, f := range cc.Sec.Findings {
+			if f.System || shown >= 12 {
+				continue
+			}
+			fmt.Fprintf(&b, "  [%s] %s — %s\n", f.SeverityLabel, f.Title, f.Object)
+			shown++
+		}
+	}
+	if cc.Fin != nil {
+		fmt.Fprintf(&b, "Cost (ESTIMATED, not a bill): ~$%.0f/mo reserved, ~$%.0f/mo wasted.\n",
+			cc.Fin.TotalMonthly, cc.Fin.WastedMonthly)
+		n := 0
+		for _, w := range cc.Fin.Workloads {
+			if w.WastedMonthly <= 0 || n >= 8 {
+				break
+			}
+			fmt.Fprintf(&b, "  waste: %s/%s (%s) reserves %.2f CPU, uses %.2f → ~$%.0f/mo\n",
+				w.Namespace, w.Name, w.Kind, w.CPURequest, w.CPUUsage, w.WastedMonthly)
+			n++
+		}
+	}
+	if cc.PodEvents != "" {
+		fmt.Fprintf(&b, "\nRecent events for referenced pod(s):\n%s", cc.PodEvents)
+	}
+	return b.String()
+}
+
 // humanDur renders a duration compactly ("3h", "2d", "45m").
 func humanDur(d time.Duration) string {
 	switch {
