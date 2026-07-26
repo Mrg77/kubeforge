@@ -97,10 +97,12 @@ export interface GenericObject {
 export interface SecFinding {
   category: string
   severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFO'
+  code: string
   title: string
   object: string
   namespace?: string
   detail: string
+  system: boolean
 }
 
 export interface SecReport {

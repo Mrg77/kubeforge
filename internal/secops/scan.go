@@ -52,11 +52,11 @@ func checkPod(p *corev1.Pod) []Finding {
 
 	// hostNetwork / hostPID / hostIPC: the pod shares the node's namespaces.
 	if p.Spec.HostNetwork {
-		out = append(out, mk(CatPodSecurity, SevHigh, "runs with hostNetwork", obj, p.Namespace,
+		out = append(out, mk(CatPodSecurity, SevHigh, "hostNetwork", "runs with hostNetwork", obj, p.Namespace,
 			"The pod shares the node's network stack, so it can reach anything the node can and bypass NetworkPolicies. Remove hostNetwork unless the workload truly needs it."))
 	}
 	if p.Spec.HostPID {
-		out = append(out, mk(CatPodSecurity, SevHigh, "runs with hostPID", obj, p.Namespace,
+		out = append(out, mk(CatPodSecurity, SevHigh, "hostPID", "runs with hostPID", obj, p.Namespace,
 			"The pod can see and signal every process on the node. Remove hostPID."))
 	}
 
@@ -65,25 +65,25 @@ func checkPod(p *corev1.Pod) []Finding {
 		sc := c.SecurityContext
 
 		if sc != nil && sc.Privileged != nil && *sc.Privileged {
-			out = append(out, mk(CatPodSecurity, SevCritical, "privileged container", cobj, p.Namespace,
+			out = append(out, mk(CatPodSecurity, SevCritical, "privileged", "privileged container", cobj, p.Namespace,
 				"A privileged container has near-root access to the node — a container escape becomes a node compromise. Drop privileged:true; grant only the specific capabilities you need."))
 		}
 		if runsAsRoot(sc, p.Spec.SecurityContext) {
-			out = append(out, mk(CatPodSecurity, SevMedium, "may run as root", cobj, p.Namespace,
+			out = append(out, mk(CatPodSecurity, SevMedium, "runAsRoot", "may run as root", cobj, p.Namespace,
 				"No runAsNonRoot / runAsUser is set, so the container can run as UID 0. Set securityContext.runAsNonRoot: true (and a runAsUser)."))
 		}
 		if sc != nil && sc.AllowPrivilegeEscalation != nil && *sc.AllowPrivilegeEscalation {
-			out = append(out, mk(CatPodSecurity, SevLow, "allows privilege escalation", cobj, p.Namespace,
+			out = append(out, mk(CatPodSecurity, SevLow, "privEscalation", "allows privilege escalation", cobj, p.Namespace,
 				"allowPrivilegeEscalation lets a process gain more privileges than its parent. Set it to false."))
 		}
 		if addsDangerousCaps(sc) {
-			out = append(out, mk(CatPodSecurity, SevHigh, "adds dangerous Linux capabilities", cobj, p.Namespace,
+			out = append(out, mk(CatPodSecurity, SevHigh, "dangerousCaps", "adds dangerous Linux capabilities", cobj, p.Namespace,
 				"Capabilities like SYS_ADMIN/NET_ADMIN grant node-level power. Drop ALL capabilities and add back only what's required."))
 		}
 
 		// Image hygiene: mutable tags mean the running code can change under you.
 		if img := c.Image; usesMutableTag(img) {
-			out = append(out, mk(CatImages, SevLow, "image uses a mutable tag", cobj, p.Namespace,
+			out = append(out, mk(CatImages, SevLow, "mutableTag", "image uses a mutable tag", cobj, p.Namespace,
 				fmt.Sprintf("%q has no immutable digest (@sha256:…) and/or uses :latest, so the code can change without a redeploy. Pin the image by digest.", img)))
 		}
 	}
@@ -104,7 +104,7 @@ func checkNetworkPolicies(ctx context.Context, kube kubernetes.Interface, namesp
 			continue
 		}
 		if len(nps.Items) == 0 {
-			out = append(out, mk(CatNetwork, SevMedium, "namespace has no NetworkPolicy", ns+" (Namespace)", ns,
+			out = append(out, mk(CatNetwork, SevMedium, "noNetworkPolicy", "namespace has no NetworkPolicy", ns+" (Namespace)", ns,
 				"With no NetworkPolicy, every pod in this namespace accepts traffic from anywhere in the cluster. Add a default-deny policy and open only what's needed."))
 		}
 	}
@@ -125,7 +125,7 @@ func checkClusterAdmin(crbs []rbacv1.ClusterRoleBinding) []Finding {
 			if sub.Name == "system:masters" || strings.HasPrefix(sub.Name, "system:") {
 				continue
 			}
-			out = append(out, mk(CatRBAC, SevHigh, "cluster-admin granted to a subject", crb.Name+" (ClusterRoleBinding)", "",
+			out = append(out, mk(CatRBAC, SevHigh, "clusterAdmin", "cluster-admin granted to a subject", crb.Name+" (ClusterRoleBinding)", "",
 				fmt.Sprintf("%s %q holds cluster-admin — full control of the cluster. Scope it down to a Role/ClusterRole with only the verbs and resources it needs.", sub.Kind, sub.Name)))
 		}
 	}

@@ -6,13 +6,33 @@ import { useT } from '../i18n'
 // SecOps: the security-posture view. A posture score up top, then deterministic
 // findings — filterable by severity, category and free text — most-severe first,
 // each with a plain "why + fix" explanation and a jump into the Resource stack.
+// fTitle/fDetail translate a finding via its code, falling back to the backend's
+// English text for any code the UI doesn't know yet.
+function useFindingText() {
+  const { t } = useT()
+  return {
+    title: (f: SecFinding) => {
+      const k = `sec.f.${f.code}.t`
+      const v = t(k)
+      return v === k ? f.title : v
+    },
+    detail: (f: SecFinding) => {
+      const k = `sec.f.${f.code}.d`
+      const v = t(k)
+      return v === k ? f.detail : v
+    },
+  }
+}
+
 export function SecOps() {
   const { t } = useT()
+  const ft = useFindingText()
   const [rep, setRep] = useState<SecReport | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [cat, setCat] = useState<string>('all')
   const [sev, setSev] = useState<string>('all')
   const [q, setQ] = useState('')
+  const [hideSystem, setHideSystem] = useState(true)
 
   useEffect(() => {
     api.secops().then(setRep).catch((e) => setErr(String(e.message ?? e)))
@@ -23,16 +43,21 @@ export function SecOps() {
 
   const c = rep.counts
   const cats = ['all', ...Array.from(new Set(rep.findings.map((f) => f.category)))]
+  const systemCount = rep.findings.filter((f) => f.system).length
 
   const shown = rep.findings.filter((f) => {
+    if (hideSystem && f.system) return false
     if (cat !== 'all' && f.category !== cat) return false
     if (sev !== 'all' && f.severity !== sev) return false
     if (q.trim()) {
       const s = q.toLowerCase()
-      if (!f.title.toLowerCase().includes(s) && !f.object.toLowerCase().includes(s)) return false
+      if (!ft.title(f).toLowerCase().includes(s) && !f.object.toLowerCase().includes(s)) return false
     }
     return true
   })
+
+  // Group the shown findings by code, most-severe/biggest first.
+  const groups = groupByCode(shown)
 
   return (
     <div className="flex flex-col gap-5">
@@ -59,21 +84,120 @@ export function SecOps() {
             {k !== 'all' && <span className="ml-1.5 text-[var(--color-ink-faint)]">{rep.findings.filter((f) => f.category === k).length}</span>}
           </button>
         ))}
+        <label className="ml-1 flex items-center gap-1.5 text-xs text-[var(--color-ink-dim)]">
+          <input type="checkbox" checked={hideSystem} onChange={(e) => setHideSystem(e.target.checked)} />
+          {t('sec.hideSystem')}
+          {hideSystem && systemCount > 0 && (
+            <span className="text-[var(--color-ink-faint)]">({t('sec.systemHidden', { n: systemCount })})</span>
+          )}
+        </label>
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('sec.searchFindings')}
-          className="ml-auto w-48 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2.5 py-1 text-xs outline-none" />
+          className="w-40 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2.5 py-1 text-xs outline-none" />
+        <button onClick={() => exportCSV(shown, ft)}
+          className="ml-auto rounded-md border border-[var(--color-border)] px-2.5 py-1 text-xs text-[var(--color-ink-dim)] hover:bg-[var(--color-surface-2)]">
+          ↓ {t('sec.export')} CSV
+        </button>
       </div>
 
-      {shown.length === 0 ? (
+      {groups.length === 0 ? (
         <Card className="p-6 text-sm text-[var(--color-ok)]">{t('sec.noMatch')}</Card>
       ) : (
         <div className="flex flex-col gap-3">
-          {shown.map((f, i) => <FindingCard key={i} f={f} />)}
+          {groups.map((g) => <FindingGroup key={g.code} group={g} ft={ft} />)}
         </div>
       )}
 
       <p className="text-xs text-[var(--color-ink-faint)]">{t('sec.disclaimer')}</p>
     </div>
   )
+}
+
+// ---- grouping -------------------------------------------------------------
+
+interface Group {
+  code: string
+  severity: SecFinding['severity']
+  category: string
+  findings: SecFinding[]
+}
+
+const SEV_ORDER: Record<string, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, INFO: 4 }
+
+function groupByCode(findings: SecFinding[]): Group[] {
+  const by = new Map<string, Group>()
+  for (const f of findings) {
+    let g = by.get(f.code)
+    if (!g) { g = { code: f.code, severity: f.severity, category: f.category, findings: [] }; by.set(f.code, g) }
+    g.findings.push(f)
+  }
+  return [...by.values()].sort((a, b) =>
+    (SEV_ORDER[a.severity] - SEV_ORDER[b.severity]) || (b.findings.length - a.findings.length))
+}
+
+// FindingGroup is a collapsible card: one header per finding type with its count,
+// expanding to the affected objects. Collapses 48 "run as root" rows into one.
+function FindingGroup({ group, ft }: { group: Group; ft: ReturnType<typeof useFindingText> }) {
+  const { t } = useT()
+  const [open, setOpen] = useState(group.findings.length === 1)
+  const color = SEV_COLOR[group.severity] ?? 'var(--color-ink-dim)'
+  const sample = group.findings[0]
+  return (
+    <Card className="overflow-hidden">
+      <button onClick={() => setOpen(!open)} className="flex w-full items-start gap-3 p-4 text-left hover:bg-[var(--color-surface-2)]">
+        <span className="mt-0.5 rounded px-2 py-0.5 text-[11px] font-semibold mono" style={{ color, background: `${color}1a` }}>
+          {group.severity}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-2">
+            <span className="text-[var(--color-ink-faint)]">{open ? '▾' : '▸'}</span>
+            <span className="font-medium">{ft.title(sample)}</span>
+            <span className="text-xs text-[var(--color-ink-faint)]">{group.category}</span>
+            <span className="ml-auto rounded-full px-2 py-0.5 text-[11px]" style={{ color, background: `${color}1a` }}>
+              {t(group.findings.length > 1 ? 'sec.affected' : 'sec.affected1', { n: group.findings.length })}
+            </span>
+          </div>
+          <div className="mt-2 text-sm text-[var(--color-ink-dim)]">{ft.detail(sample)}</div>
+        </div>
+      </button>
+      {open && (
+        <div className="border-t border-[var(--color-border)]">
+          {group.findings.map((f, i) => {
+            const ns = f.namespace || parseNs(f.object)
+            return (
+              <div key={i} className="flex items-center gap-2 border-b border-[var(--color-border)]/40 px-4 py-1.5 text-xs last:border-0">
+                <span className="mono text-[var(--color-ink-dim)]">{f.object}</span>
+                {ns && (
+                  <a href={`?tab=topology&lens=layered&ns=${encodeURIComponent(ns)}`}
+                    className="ml-auto shrink-0 text-[var(--color-accent)] hover:underline">
+                    {t('sec.viewInStack')}
+                  </a>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </Card>
+  )
+}
+
+// ---- CSV export ------------------------------------------------------------
+
+function exportCSV(findings: SecFinding[], ft: ReturnType<typeof useFindingText>) {
+  const esc = (s: string) => `"${(s ?? '').replaceAll('"', '""')}"`
+  const rows = [
+    ['severity', 'category', 'title', 'object', 'namespace', 'detail'].join(','),
+    ...findings.map((f) => [
+      f.severity, f.category, ft.title(f), f.object, f.namespace ?? parseNs(f.object), ft.detail(f),
+    ].map(esc).join(',')),
+  ]
+  const blob = new Blob([rows.join('\n')], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'kubeforge-secops.csv'
+  a.click()
+  URL.revokeObjectURL(url)
 }
 
 // ScoreGauge turns the weighted findings into a 0–100 posture grade + letter.
@@ -125,36 +249,6 @@ const SEV_COLOR: Record<string, string> = {
   MEDIUM: 'var(--color-warn)',
   LOW: 'var(--color-info)',
   INFO: 'var(--color-ink-dim)',
-}
-
-function FindingCard({ f }: { f: SecFinding }) {
-  const { t } = useT()
-  const color = SEV_COLOR[f.severity] ?? 'var(--color-ink-dim)'
-  // The object is "<namespace>/<name> (<Kind>)"; link into the Resource stack
-  // for that namespace so you can see the offending resource in context.
-  const ns = f.namespace || parseNs(f.object)
-  return (
-    <Card className="p-4">
-      <div className="flex items-start gap-3">
-        <span className="mt-0.5 rounded px-2 py-0.5 text-[11px] font-semibold mono"
-          style={{ color, background: `${color}1a` }}>{f.severity}</span>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-baseline gap-2">
-            <span className="font-medium">{f.title}</span>
-            <span className="text-xs text-[var(--color-ink-faint)]">{f.category}</span>
-            {ns && (
-              <a href={`?tab=topology&lens=layered&ns=${encodeURIComponent(ns)}`}
-                className="ml-auto text-[11px] text-[var(--color-accent)] hover:underline">
-                {t('sec.viewInStack')}
-              </a>
-            )}
-          </div>
-          <div className="mt-0.5 text-xs text-[var(--color-ink-dim)] mono">{f.object}</div>
-          <div className="mt-2 text-sm text-[var(--color-ink-dim)]">{f.detail}</div>
-        </div>
-      </div>
-    </Card>
-  )
 }
 
 function parseNs(object: string): string {

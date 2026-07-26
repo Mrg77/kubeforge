@@ -54,22 +54,49 @@ type Finding struct {
 	Category      Category `json:"category"`
 	Severity      Severity `json:"-"`
 	SeverityLabel string   `json:"severity"`
-	Title         string   `json:"title"`  // short problem statement
-	Object        string   `json:"object"` // "namespace/name (Kind)"
-	Namespace     string   `json:"namespace,omitempty"`
-	Detail        string   `json:"detail"` // why it's risky + what to do
+	// Code is a stable machine key for the finding type ("privileged",
+	// "runAsRoot"…), so the UI can translate title/detail while the backend
+	// stays the source of truth for the English wording.
+	Code      string `json:"code"`
+	Title     string `json:"title"`  // short problem statement (English)
+	Object    string `json:"object"` // "namespace/name (Kind)"
+	Namespace string `json:"namespace,omitempty"`
+	Detail    string `json:"detail"` // why it's risky + what to do (English)
+	// System is true when the finding is on a system namespace (kube-system…),
+	// which is privileged by design — the UI can hide these by default.
+	System bool `json:"system"`
 }
 
-func mk(cat Category, sev Severity, title, object, ns, detail string) Finding {
+func mk(cat Category, sev Severity, code, title, object, ns, detail string) Finding {
 	return Finding{
 		Category:      cat,
 		Severity:      sev,
 		SeverityLabel: sev.String(),
+		Code:          code,
 		Title:         title,
 		Object:        object,
 		Namespace:     ns,
 		Detail:        detail,
+		System:        isSystemNS(ns) || isSystemNS(nsFromObject(object)),
 	}
+}
+
+// nsFromObject pulls the namespace out of an "ns/name (Kind)" object string,
+// for findings whose ns field is empty (cluster-scoped-ish records).
+func nsFromObject(object string) string {
+	if i := indexByte(object, '/'); i > 0 {
+		return object[:i]
+	}
+	return ""
+}
+
+func indexByte(s string, b byte) int {
+	for i := 0; i < len(s); i++ {
+		if s[i] == b {
+			return i
+		}
+	}
+	return -1
 }
 
 // Report is a full posture scan.
