@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Activity, Boxes, Database, DollarSign, ShieldCheck, Sparkles, Server, RefreshCw } from 'lucide-react'
+import { Activity, Boxes, Database, DollarSign, Network, ShieldCheck, Sparkles, Server, RefreshCw } from 'lucide-react'
 import { api, type ClusterInfo } from './api'
 import { cn, Spinner } from './lib'
 import { Overview } from './views/Overview'
@@ -8,11 +8,13 @@ import { SecOps } from './views/SecOps'
 import { FinOps } from './views/FinOps'
 import { Insights } from './views/Insights'
 import { Storage } from './views/Storage'
+import { Topology } from './views/Topology'
 
-type Tab = 'overview' | 'resources' | 'storage' | 'finops' | 'secops' | 'insights'
+type Tab = 'overview' | 'topology' | 'resources' | 'storage' | 'finops' | 'secops' | 'insights'
 
 const NAV: { id: Tab; label: string; icon: typeof Activity; ready: boolean }[] = [
   { id: 'overview', label: 'Overview', icon: Activity, ready: true },
+  { id: 'topology', label: 'Topology', icon: Network, ready: true },
   { id: 'resources', label: 'Resources', icon: Boxes, ready: true },
   { id: 'storage', label: 'Storage', icon: Database, ready: true },
   { id: 'finops', label: 'FinOps', icon: DollarSign, ready: true },
@@ -22,7 +24,7 @@ const NAV: { id: Tab; label: string; icon: typeof Activity; ready: boolean }[] =
 
 function initialTab(): Tab {
   const t = new URLSearchParams(location.search).get('tab')
-  return ['resources','storage','finops','secops','insights'].includes(t ?? '') ? (t as Tab) : 'overview'
+  return ['topology','resources','storage','finops','secops','insights'].includes(t ?? '') ? (t as Tab) : 'overview'
 }
 
 export default function App() {
@@ -84,6 +86,7 @@ export default function App() {
         <main className="min-h-0 flex-1 overflow-auto p-6">
           {!cluster && !err && <Spinner />}
           {tab === 'overview' && <Overview />}
+          {tab === 'topology' && <Topology />}
           {tab === 'resources' && <Resources />}
           {tab === 'storage' && <Storage />}
           {tab === 'secops' && <SecOps />}

@@ -30,6 +30,15 @@ export interface Node {
   age: string
 }
 
+export interface Topology {
+  nodes: {
+    name: string
+    ready: boolean
+    pods: { name: string; namespace: string; healthy: boolean; status: string }[]
+  }[]
+  services: { name: string; namespace: string; type: string; podKeys: string[] }[]
+}
+
 export interface ResourceKind {
   group: string
   version: string
@@ -154,6 +163,8 @@ export const api = {
   pods: (namespace?: string) =>
     get<Pod[]>('/api/pods' + (namespace ? `?namespace=${encodeURIComponent(namespace)}` : '')),
   nodes: () => get<Node[]>('/api/nodes'),
+  topology: (namespace?: string) =>
+    get<Topology>('/api/topology' + (namespace ? `?namespace=${encodeURIComponent(namespace)}` : '')),
   resourceKinds: () => get<ResourceKind[]>('/api/resources'),
   listResource: (rk: ResourceKind, namespace?: string) => {
     const group = rk.group === '' ? 'core' : rk.group

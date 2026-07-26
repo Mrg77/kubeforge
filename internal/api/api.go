@@ -37,6 +37,7 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/cluster", s.handleCluster)
 	mux.HandleFunc("GET /api/pods", s.handlePods)
 	mux.HandleFunc("GET /api/nodes", s.handleNodes)
+	mux.HandleFunc("GET /api/topology", s.handleTopology)
 	// Generic resource browser: discover every kind, then list any of them.
 	mux.HandleFunc("GET /api/resources", s.handleResourceKinds)
 	mux.HandleFunc("GET /api/resources/{group}/{version}/{name}", s.handleListResource)
@@ -300,6 +301,17 @@ func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, nodes)
+}
+
+func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := reqCtx(r)
+	defer cancel()
+	topo, err := s.cluster.BuildTopology(ctx, r.URL.Query().Get("namespace"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, topo)
 }
 
 // reqCtx derives a request context with a sane timeout so a slow cluster can't
