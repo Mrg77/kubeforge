@@ -40,6 +40,8 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/topology", s.handleTopology)
 	mux.HandleFunc("GET /api/layers", s.handleLayers)
 	mux.HandleFunc("GET /api/namespaces", s.handleNamespaces)
+	mux.HandleFunc("GET /api/object/yaml", s.handleObjectYAML)
+	mux.HandleFunc("GET /api/object/events", s.handleObjectEvents)
 	// Generic resource browser: discover every kind, then list any of them.
 	mux.HandleFunc("GET /api/resources", s.handleResourceKinds)
 	mux.HandleFunc("GET /api/resources/{group}/{version}/{name}", s.handleListResource)
@@ -326,6 +328,33 @@ func (s *Server) handleNamespaces(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, names)
+}
+
+// handleObjectYAML returns one object's manifest (Secret data redacted), for the
+// node "view manifest" action. Query: kind, namespace, name.
+func (s *Server) handleObjectYAML(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := reqCtx(r)
+	defer cancel()
+	q := r.URL.Query()
+	yamlStr, err := s.cluster.ObjectYAML(ctx, q.Get("kind"), q.Get("namespace"), q.Get("name"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"yaml": yamlStr})
+}
+
+// handleObjectEvents returns recent events for an object. Query: namespace, name.
+func (s *Server) handleObjectEvents(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := reqCtx(r)
+	defer cancel()
+	q := r.URL.Query()
+	evs, err := s.cluster.ObjectEvents(ctx, q.Get("namespace"), q.Get("name"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, evs)
 }
 
 // handleLayers returns the stacked resource graph for one namespace (Ingress

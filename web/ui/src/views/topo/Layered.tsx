@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { api, type LayeredGraph, type GraphNode } from '../../api'
+import { api, type LayeredGraph, type GraphNode, type EventLine } from '../../api'
 import { Spinner, ErrorNote } from '../../lib'
 
 // Layered — the resource stack of a namespace, drawn top (high-level: traffic in)
@@ -31,6 +31,9 @@ const KIND: Record<string, { c: string; icon: string }> = {
   NetworkPolicy: { c: '#db61a2', icon: '🛡' },
   ResourceQuota: { c: '#db61a2', icon: '📊' },
   LimitRange: { c: '#db61a2', icon: '📐' },
+  CronJob: { c: '#3fb950', icon: '⏰' },
+  HorizontalPodAutoscaler: { c: '#db61a2', icon: '📈' },
+  PodDisruptionBudget: { c: '#db61a2', icon: '🚧' },
 }
 const kindOf = (k: string) => KIND[k] ?? { c: '#9aa7b4', icon: '◻' }
 
@@ -47,6 +50,7 @@ export function Layered() {
   const [graph, setGraph] = useState<LayeredGraph | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [hover, setHover] = useState<string | null>(null)
+  const [selected, setSelected] = useState<GraphNode | null>(null)
 
   useEffect(() => {
     api.namespaces().then((all) => {
@@ -90,16 +94,21 @@ export function Layered() {
           resources yet.
         </div>
       ) : (
-        <Stack graph={graph} hover={hover} setHover={setHover} />
+        <Stack graph={graph} hover={hover} setHover={setHover} onSelect={setSelected} />
+      )}
+
+      {selected && ns && (
+        <ObjectDrawer node={selected} namespace={ns} onClose={() => setSelected(null)} />
       )}
     </div>
   )
 }
 
-function Stack({ graph, hover, setHover }: {
+function Stack({ graph, hover, setHover, onSelect }: {
   graph: LayeredGraph
   hover: string | null
   setHover: (s: string | null) => void
+  onSelect: (n: GraphNode) => void
 }) {
   const layout = useMemo(() => {
     // keep only layers that actually have nodes, in the backend's order
@@ -196,21 +205,38 @@ function Stack({ graph, hover, setHover }: {
           const meta = kindOf(n.kind)
           const dim = lit && !lit.has(n.id)
           const bad = !n.healthy
+          const risky = (n.risk?.length ?? 0) > 0
           return (
             <g key={n.id} transform={`translate(${p.x},${p.y})`}
               onMouseEnter={() => setHover(n.id)} onMouseLeave={() => setHover(null)}
+              onClick={() => onSelect(n)}
               style={{ cursor: 'pointer' }} opacity={dim ? 0.2 : 1}>
               <rect width={CHIP_W} height={CHIP_H} rx={7}
                 fill="var(--color-surface-2)"
-                stroke={bad ? 'var(--color-crit)' : meta.c}
+                stroke={bad ? 'var(--color-crit)' : risky ? 'var(--color-warn)' : meta.c}
                 strokeWidth={n.id === hover ? 2 : 1.2} />
               <text x={9} y={CHIP_H / 2} fontSize={13} dominantBaseline="middle">{meta.icon}</text>
               <text x={26} y={12} fontSize={10.5} fill="var(--color-ink)" className="mono">
-                {clip(n.name, 15)}
+                {clip(n.name, risky || n.custom ? 12 : 15)}
               </text>
               <text x={26} y={25} fontSize={8.5} fill="var(--color-ink-faint)">
                 {n.detail || n.kind}
               </text>
+              {/* SecOps risk pill */}
+              {risky && (
+                <g transform={`translate(${CHIP_W - 18},6)`}>
+                  <circle r={6} fill="var(--color-warn)" />
+                  <text x={0} y={0.5} textAnchor="middle" dominantBaseline="middle" fontSize={9} fontWeight={700} fill="#000">!</text>
+                  <title>{n.risk!.join(', ')}</title>
+                </g>
+              )}
+              {/* custom (CRD) badge */}
+              {n.custom && !risky && (
+                <g transform={`translate(${CHIP_W - 22},7)`}>
+                  <rect width={16} height={11} rx={3} fill="var(--color-accent-soft)" stroke="var(--color-accent)" strokeWidth={0.6} />
+                  <text x={8} y={6} textAnchor="middle" dominantBaseline="middle" fontSize={6.5} fill="var(--color-accent)">CRD</text>
+                </g>
+              )}
             </g>
           )
         })}
@@ -241,6 +267,122 @@ function DetailPanel({ node }: { node: GraphNode }) {
         ))}
       </div>
     </div>
+  )
+}
+
+// ObjectDrawer slides in when a node is clicked: it shows the resource's facts,
+// any SecOps risks, its recent events (the quick "why unhealthy"), and the live
+// manifest (Secret data redacted server-side).
+function ObjectDrawer({ node, namespace, onClose }: {
+  node: GraphNode
+  namespace: string
+  onClose: () => void
+}) {
+  const meta = kindOf(node.kind)
+  const [tab, setTab] = useState<'detail' | 'events' | 'yaml'>('detail')
+  const [yaml, setYaml] = useState<string | null>(null)
+  const [events, setEvents] = useState<EventLine[] | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const loadYAML = () => {
+    if (yaml !== null) return
+    setBusy(true)
+    api.objectYAML(node.kind, namespace, node.name)
+      .then((r) => setYaml(r.yaml))
+      .catch((e) => setYaml('⚠ ' + String(e.message ?? e)))
+      .finally(() => setBusy(false))
+  }
+  const loadEvents = () => {
+    if (events !== null) return
+    setBusy(true)
+    api.objectEvents(namespace, node.name)
+      .then(setEvents)
+      .catch(() => setEvents([]))
+      .finally(() => setBusy(false))
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-black/50" onClick={onClose} />
+      <aside className="fixed right-0 top-0 z-50 flex h-full w-full max-w-lg flex-col border-l border-[var(--color-border)] bg-[var(--color-surface)] shadow-2xl">
+        <header className="flex items-center gap-2 border-b border-[var(--color-border)] px-5 py-4">
+          <span>{meta.icon}</span>
+          <span className="mono text-sm font-semibold text-[var(--color-ink)]">{node.name}</span>
+          <span className="rounded px-1.5 text-[10px]" style={{ color: meta.c, background: 'var(--color-bg)' }}>
+            {node.kind}{node.custom ? ' · CRD' : ''}
+          </span>
+          <button onClick={onClose} className="ml-auto text-[var(--color-ink-dim)] hover:text-[var(--color-ink)]">✕</button>
+        </header>
+
+        <div className="flex gap-1 border-b border-[var(--color-border)] px-3 py-2 text-xs">
+          {(['detail', 'events', 'yaml'] as const).map((t) => (
+            <button key={t}
+              onClick={() => { setTab(t); if (t === 'yaml') loadYAML(); if (t === 'events') loadEvents() }}
+              className={'rounded px-3 py-1 capitalize ' + (tab === t
+                ? 'bg-[var(--color-accent)] text-black font-medium'
+                : 'text-[var(--color-ink-dim)] hover:text-[var(--color-ink)]')}>
+              {t === 'yaml' ? 'manifest' : t}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex-1 overflow-auto p-5">
+          {tab === 'detail' && (
+            <div className="flex flex-col gap-4">
+              {(node.risk?.length ?? 0) > 0 && (
+                <div className="rounded-lg border border-[var(--color-warn)] bg-[var(--color-bg)] p-3">
+                  <div className="mb-1 text-xs font-medium text-[var(--color-warn)]">⚠ SecOps warnings</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {node.risk!.map((r) => (
+                      <span key={r} className="mono rounded bg-[var(--color-warn)] px-1.5 py-0.5 text-[10px] text-black">{r}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div className="flex flex-col gap-1.5">
+                {(node.info ?? []).map((row) => (
+                  <div key={row.k} className="flex items-baseline justify-between gap-4 text-xs">
+                    <span className="text-[var(--color-ink-faint)]">{row.k}</span>
+                    <span className="mono text-right text-[var(--color-ink)]">{row.v}</span>
+                  </div>
+                ))}
+                {(node.info?.length ?? 0) === 0 && (
+                  <span className="text-xs text-[var(--color-ink-faint)]">No extra detail for this kind.</span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {tab === 'events' && (
+            busy && !events ? <Spinner /> :
+            (events?.length ?? 0) === 0 ? (
+              <div className="text-xs text-[var(--color-ink-faint)]">No recent events for this object.</div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {events!.map((e, i) => (
+                  <div key={i} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] p-2.5 text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className={e.type === 'Warning' ? 'text-[var(--color-crit)]' : 'text-[var(--color-ok)]'}>●</span>
+                      <span className="font-medium text-[var(--color-ink)]">{e.reason}</span>
+                      <span className="ml-auto text-[10px] text-[var(--color-ink-faint)]">×{e.count} · {e.age}</span>
+                    </div>
+                    <div className="mt-1 text-[var(--color-ink-dim)]">{e.message}</div>
+                  </div>
+                ))}
+              </div>
+            )
+          )}
+
+          {tab === 'yaml' && (
+            busy && yaml === null ? <Spinner /> : (
+              <pre className="overflow-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] p-3 text-[11px] leading-relaxed text-[var(--color-ink)]">
+                {yaml}
+              </pre>
+            )
+          )}
+        </div>
+      </aside>
+    </>
   )
 }
 

@@ -3,11 +3,14 @@ package cluster
 import (
 	"context"
 	"fmt"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
+	"sigs.k8s.io/yaml"
 )
 
 // LayeredGraph is the "resource stack" view of a namespace: every object as a
@@ -38,10 +41,16 @@ type GraphNode struct {
 	Layer   string `json:"layer"`   // which band it sits in
 	Healthy bool   `json:"healthy"` // for status coloring (pods/workloads mainly)
 	Detail  string `json:"detail"`  // small subtitle (type, replicas, phase…)
-	// Meta is a set of type-specific facts surfaced in the hover panel (IP,
+	// Info is a set of type-specific facts surfaced in the hover panel (IP,
 	// node, ports, capacity, image, estimated monthly cost…). Order-preserving
-	// via the Info slice so the UI can render label/value rows predictably.
+	// so the UI can render label/value rows predictably.
 	Info []KV `json:"info,omitempty"`
+	// Risk holds inline SecOps warnings (privileged, hostNetwork…) so the UI can
+	// flag a node without opening the SecOps tab. Empty = clean.
+	Risk []string `json:"risk,omitempty"`
+	// Custom marks CRD-backed nodes (ServiceMonitor, Certificate…) so the UI can
+	// badge them as coming from an operator, not core Kubernetes.
+	Custom bool `json:"custom,omitempty"`
 }
 
 // KV is one label/value fact shown in the detail panel.
@@ -116,13 +125,20 @@ func (c *Client) LayeredNamespace(ctx context.Context, ns string) (*LayeredGraph
 	}
 	podID := map[string]string{}   // pod name -> node id
 	podLabels := map[string]labels.Set{}
+	// Per-workload cost, summed across the workload's pods (resolved via owner).
+	wlCost := map[string]float64{}
 	for i := range pods.Items {
 		p := &pods.Items[i]
 		sum := summarizePod(p)
 		id := nodeID("Pod", ns, p.Name)
 		podID[p.Name] = id
 		podLabels[p.Name] = labels.Set(p.Labels)
-		add(GraphNode{ID: id, Kind: "Pod", Name: p.Name, Layer: "pod", Healthy: sum.Healthy, Detail: sum.Status, Info: podInfo(p)})
+		add(GraphNode{ID: id, Kind: "Pod", Name: p.Name, Layer: "pod", Healthy: sum.Healthy, Detail: sum.Status, Info: podInfo(p), Risk: podRisk(p)})
+
+		// accumulate this pod's cost onto its top workload (Deployment via RS)
+		cpu, mem := podRequests(p)
+		ownerName, ownerKind := workloadOf(p)
+		wlCost[ownerKind+"/"+ownerName] += monthlyCost(cpu, mem)
 
 		// Pod → its ReplicaSet/StatefulSet/DaemonSet owner (workload layer)
 		for _, ref := range p.OwnerReferences {
@@ -186,7 +202,8 @@ func (c *Client) LayeredNamespace(ctx context.Context, ns string) (*LayeredGraph
 			dID := nodeID("Deployment", ns, d.Name)
 			healthy := d.Status.ReadyReplicas == d.Status.Replicas
 			add(GraphNode{ID: dID, Kind: "Deployment", Name: d.Name, Layer: "workload", Healthy: healthy,
-				Detail: fmt.Sprintf("%d/%d ready", d.Status.ReadyReplicas, d.Status.Replicas)})
+				Detail: fmt.Sprintf("%d/%d ready", d.Status.ReadyReplicas, d.Status.Replicas),
+				Info:   workloadInfo(d.Spec.Template.Spec, d.CreationTimestamp.Time, wlCost["Deployment/"+d.Name])})
 		}
 	}
 	// Deployment → ReplicaSet ownership
@@ -211,7 +228,8 @@ func (c *Client) LayeredNamespace(ctx context.Context, ns string) (*LayeredGraph
 			id := nodeID("StatefulSet", ns, s.Name)
 			add(GraphNode{ID: id, Kind: "StatefulSet", Name: s.Name, Layer: "workload",
 				Healthy: s.Status.ReadyReplicas == s.Status.Replicas,
-				Detail:  fmt.Sprintf("%d/%d ready", s.Status.ReadyReplicas, s.Status.Replicas)})
+				Detail:  fmt.Sprintf("%d/%d ready", s.Status.ReadyReplicas, s.Status.Replicas),
+				Info:    workloadInfo(s.Spec.Template.Spec, s.CreationTimestamp.Time, wlCost["StatefulSet/"+s.Name])})
 		}
 	}
 	if dss, err := apps.DaemonSets(ns).List(ctx, metav1.ListOptions{}); err == nil {
@@ -220,7 +238,8 @@ func (c *Client) LayeredNamespace(ctx context.Context, ns string) (*LayeredGraph
 			id := nodeID("DaemonSet", ns, d.Name)
 			add(GraphNode{ID: id, Kind: "DaemonSet", Name: d.Name, Layer: "workload",
 				Healthy: d.Status.NumberReady == d.Status.DesiredNumberScheduled,
-				Detail:  fmt.Sprintf("%d/%d ready", d.Status.NumberReady, d.Status.DesiredNumberScheduled)})
+				Detail:  fmt.Sprintf("%d/%d ready", d.Status.NumberReady, d.Status.DesiredNumberScheduled),
+				Info:    workloadInfo(d.Spec.Template.Spec, d.CreationTimestamp.Time, wlCost["DaemonSet/"+d.Name])})
 		}
 	}
 
@@ -373,7 +392,120 @@ func (c *Client) LayeredNamespace(ctx context.Context, ns string) (*LayeredGraph
 	// ---- Governance: NetworkPolicy / ResourceQuota / LimitRange (they encircle the namespace) ----
 	addGovernance(ctx, c, ns, add)
 
+	// ---- Custom resources (CRDs): ServiceMonitor, Certificate, and anything an
+	// operator installed. Discovered dynamically so self-managed clusters with
+	// their own CRDs are first-class. Best-effort: never fail the whole graph. ----
+	c.addCustomResources(ctx, ns, add)
+
 	return g, nil
+}
+
+// ObjectYAML fetches a single object's YAML by kind/namespace/name, for the
+// "view manifest" action on a node. Uses discovery to map the kind to its GVR,
+// then the dynamic client to read it. Secrets are returned with data redacted.
+func (c *Client) ObjectYAML(ctx context.Context, kind, ns, name string) (string, error) {
+	if c.dyn == nil {
+		return "", fmt.Errorf("dynamic client unavailable")
+	}
+	kinds, err := c.ResourceKinds(ctx)
+	if err != nil {
+		return "", err
+	}
+	var rk *ResourceKind
+	for i := range kinds {
+		if kinds[i].Kind == kind {
+			rk = &kinds[i]
+			break
+		}
+	}
+	if rk == nil {
+		return "", fmt.Errorf("unknown kind %q", kind)
+	}
+	ri := c.dyn.dc.Resource(rk.GVR())
+	var obj *unstructured.Unstructured
+	if rk.Namespaced {
+		obj, err = ri.Namespace(ns).Get(ctx, name, metav1.GetOptions{})
+	} else {
+		obj, err = ri.Get(ctx, name, metav1.GetOptions{})
+	}
+	if err != nil {
+		return "", err
+	}
+	// Never leak secret material through the manifest view.
+	if kind == "Secret" {
+		if _, ok := obj.Object["data"]; ok {
+			obj.Object["data"] = "«redacted by KubeForge»"
+		}
+	}
+	// strip noisy managed fields
+	meta, _ := obj.Object["metadata"].(map[string]any)
+	if meta != nil {
+		delete(meta, "managedFields")
+	}
+	out, err := yaml.Marshal(obj.Object)
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
+// ObjectEvents returns recent events for an object, for the node's "events"
+// action — the quick "why is this unhealthy" answer.
+func (c *Client) ObjectEvents(ctx context.Context, ns, name string) ([]EventLine, error) {
+	evs, err := c.Kube.CoreV1().Events(ns).List(ctx, metav1.ListOptions{
+		FieldSelector: "involvedObject.name=" + name,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]EventLine, 0, len(evs.Items))
+	for i := range evs.Items {
+		e := &evs.Items[i]
+		out = append(out, EventLine{
+			Type: e.Type, Reason: e.Reason, Message: e.Message,
+			Count: e.Count, Age: ageOrDash(e.LastTimestamp.Time),
+		})
+	}
+	return out, nil
+}
+
+// EventLine is one event row for the node detail panel.
+type EventLine struct {
+	Type    string `json:"type"`
+	Reason  string `json:"reason"`
+	Message string `json:"message"`
+	Count   int32  `json:"count"`
+	Age     string `json:"age"`
+}
+
+// addCustomResources lists CRD-backed objects in the namespace via the dynamic
+// client and drops them into the workload layer, badged as custom. It skips core
+// groups (already drawn) and anything that isn't namespaced or listable.
+func (c *Client) addCustomResources(ctx context.Context, ns string, add func(GraphNode)) {
+	if c.dyn == nil {
+		return
+	}
+	kinds, err := c.ResourceKinds(ctx)
+	if err != nil {
+		return
+	}
+	for _, rk := range kinds {
+		if !rk.Custom || !rk.Namespaced {
+			continue
+		}
+		objs, err := c.ListResource(ctx, rk, ns)
+		if err != nil {
+			continue
+		}
+		for _, o := range objs {
+			add(GraphNode{
+				ID: nodeID(rk.Kind, ns, o.Name), Kind: rk.Kind, Name: o.Name,
+				Layer: "workload", Healthy: true, Custom: true,
+				Detail: rk.Kind,
+				Info:   []KV{{K: "Kind", V: rk.Kind}, {K: "Group", V: rk.Group}, {K: "Age", V: o.Age}},
+			})
+		}
+	}
 }
 
 // addGovernance surfaces the namespace guard-rails as top-layer nodes. They
@@ -436,7 +568,78 @@ func podInfo(p *corev1.Pod) []KV {
 			KV{K: "Est. cost", V: fmt.Sprintf("~$%.2f/mo", monthlyCost(cpu, mem))},
 		)
 	}
+	info = append(info, KV{K: "Age", V: ageOrDash(p.CreationTimestamp.Time)})
+	if lbl := topLabels(p.Labels); lbl != "" {
+		info = append(info, KV{K: "Labels", V: lbl})
+	}
 	return info
+}
+
+// podRisk runs a few cheap, high-signal SecOps checks so a risky pod can be
+// flagged inline. Mirrors the SecOps scanner's headline findings.
+func podRisk(p *corev1.Pod) []string {
+	var out []string
+	if p.Spec.HostNetwork {
+		out = append(out, "hostNetwork")
+	}
+	if p.Spec.HostPID {
+		out = append(out, "hostPID")
+	}
+	for _, c := range p.Spec.Containers {
+		sc := c.SecurityContext
+		if sc == nil {
+			continue
+		}
+		if sc.Privileged != nil && *sc.Privileged {
+			out = append(out, "privileged")
+		}
+		if sc.AllowPrivilegeEscalation != nil && *sc.AllowPrivilegeEscalation {
+			out = append(out, "allowPrivilegeEscalation")
+		}
+		if sc.Capabilities != nil {
+			for _, ca := range sc.Capabilities.Add {
+				if ca == "SYS_ADMIN" || ca == "NET_ADMIN" || ca == "ALL" {
+					out = append(out, "cap:"+string(ca))
+				}
+			}
+		}
+	}
+	return dedup(out)
+}
+
+// ageOrDash is age() with a dash fallback for zero times (age() returns "").
+func ageOrDash(t time.Time) string {
+	if s := age(t); s != "" {
+		return s
+	}
+	return "—"
+}
+
+// topLabels renders up to three of the most useful labels (app/component/tier).
+func topLabels(m map[string]string) string {
+	prefer := []string{"app", "app.kubernetes.io/name", "component", "tier", "release"}
+	var parts []string
+	for _, k := range prefer {
+		if v, ok := m[k]; ok {
+			parts = append(parts, v)
+			if len(parts) == 2 {
+				break
+			}
+		}
+	}
+	return joinComma(parts)
+}
+
+func dedup(ss []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, s := range ss {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // podRequests sums CPU (cores) and memory (GB) requested across containers.
@@ -450,6 +653,20 @@ func podRequests(p *corev1.Pod) (cpu, memGB float64) {
 		}
 	}
 	return cpu, memGB
+}
+
+// workloadInfo builds hover facts for a workload: image, age, and the aggregate
+// monthly cost of all its replicas (the number that actually matters for FinOps).
+func workloadInfo(spec corev1.PodSpec, created time.Time, cost float64) []KV {
+	info := []KV{}
+	if len(spec.Containers) > 0 {
+		info = append(info, KV{K: "Image", V: shortImage(spec.Containers[0].Image)})
+	}
+	if cost > 0 {
+		info = append(info, KV{K: "Cost (all pods)", V: fmt.Sprintf("~$%.2f/mo", cost)})
+	}
+	info = append(info, KV{K: "Age", V: ageOrDash(created)})
+	return info
 }
 
 func svcInfo(s *corev1.Service) []KV {

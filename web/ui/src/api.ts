@@ -56,6 +56,15 @@ export interface GraphNode {
   healthy: boolean
   detail: string
   info?: { k: string; v: string }[]
+  risk?: string[]
+  custom?: boolean
+}
+export interface EventLine {
+  type: string
+  reason: string
+  message: string
+  count: number
+  age: string
 }
 export interface GraphEdge {
   from: string
@@ -200,6 +209,14 @@ export const api = {
   namespaces: () => get<string[]>('/api/namespaces'),
   layers: (namespace: string) =>
     get<LayeredGraph>(`/api/layers?namespace=${encodeURIComponent(namespace)}`),
+  objectYAML: (kind: string, namespace: string, name: string) =>
+    get<{ yaml: string }>(
+      `/api/object/yaml?kind=${encodeURIComponent(kind)}&namespace=${encodeURIComponent(namespace)}&name=${encodeURIComponent(name)}`,
+    ),
+  objectEvents: (namespace: string, name: string) =>
+    get<EventLine[]>(
+      `/api/object/events?namespace=${encodeURIComponent(namespace)}&name=${encodeURIComponent(name)}`,
+    ),
   resourceKinds: () => get<ResourceKind[]>('/api/resources'),
   listResource: (rk: ResourceKind, namespace?: string) => {
     const group = rk.group === '' ? 'core' : rk.group
