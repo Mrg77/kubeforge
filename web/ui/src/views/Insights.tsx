@@ -168,28 +168,32 @@ interface Preset {
   models: string[]
   keyURL?: string
   keyLabel?: string
+  free?: boolean // offers a no-credit-card free tier — surfaced first
   custom?: boolean // free-form endpoint + model
 }
 
-// The catalog. Claude & Gemini use native formats; the rest all speak the
-// OpenAI-compatible API — one code path, any provider — differing only by
-// baseUrl. "Custom" covers self-hosted (LiteLLM, vLLM, Ollama) and anything new.
+// The catalog, ordered so the FREE options come first: most people have a chat
+// subscription, not a paid API bill, so the AI must work without paying. Gemini
+// and Groq hand out a free key (no card); Claude/ChatGPT/etc. need paid API
+// credit. Claude & Gemini use native API shapes; the rest speak the OpenAI-
+// compatible standard (one code path, differ only by baseUrl). "Custom" covers
+// self-hosted (LiteLLM, vLLM, Ollama) and anything new.
 const PRESETS: Preset[] = [
+  { id: 'google', label: 'Gemini', brand: 'Google', color: '#4285f4', provider: 'google', free: true,
+    models: ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash'],
+    keyURL: 'https://aistudio.google.com/apikey', keyLabel: 'aistudio.google.com' },
+  { id: 'groq', label: 'Groq', brand: 'fast, free tier', color: '#f55036', provider: 'openai', free: true,
+    baseUrl: 'https://api.groq.com/openai', models: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768'],
+    keyURL: 'https://console.groq.com/keys', keyLabel: 'console.groq.com' },
   { id: 'anthropic', label: 'Claude', brand: 'Anthropic', color: '#d97757', provider: 'anthropic',
     models: ['claude-opus-4-8', 'claude-sonnet-5', 'claude-haiku-4-5-20251001'],
     keyURL: 'https://console.anthropic.com/settings/keys', keyLabel: 'console.anthropic.com' },
   { id: 'openai', label: 'ChatGPT', brand: 'OpenAI', color: '#10a37f', provider: 'openai',
     baseUrl: 'https://api.openai.com', models: ['gpt-4o', 'gpt-4o-mini', 'o3-mini'],
     keyURL: 'https://platform.openai.com/api-keys', keyLabel: 'platform.openai.com' },
-  { id: 'google', label: 'Gemini', brand: 'Google', color: '#4285f4', provider: 'google',
-    models: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash'],
-    keyURL: 'https://aistudio.google.com/apikey', keyLabel: 'aistudio.google.com' },
   { id: 'mistral', label: 'Mistral', brand: 'Mistral AI 🇫🇷', color: '#fa5310', provider: 'openai',
     baseUrl: 'https://api.mistral.ai', models: ['mistral-large-latest', 'mistral-small-latest', 'open-mistral-nemo'],
     keyURL: 'https://console.mistral.ai/api-keys', keyLabel: 'console.mistral.ai' },
-  { id: 'groq', label: 'Groq', brand: 'Groq (fast)', color: '#f55036', provider: 'openai',
-    baseUrl: 'https://api.groq.com/openai', models: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768'],
-    keyURL: 'https://console.groq.com/keys', keyLabel: 'console.groq.com' },
   { id: 'deepseek', label: 'DeepSeek', brand: 'DeepSeek', color: '#4d6bfe', provider: 'openai',
     baseUrl: 'https://api.deepseek.com', models: ['deepseek-chat', 'deepseek-reasoner'],
     keyURL: 'https://platform.deepseek.com/api_keys', keyLabel: 'platform.deepseek.com' },
@@ -203,12 +207,17 @@ const PRESETS: Preset[] = [
     baseUrl: '', models: [], custom: true },
 ]
 
-// Figure out which preset a saved config matches (for re-opening the form).
+const byId = (id: string) => PRESETS.find((p) => p.id === id)!
+
+// Figure out which preset a saved config matches (for re-opening the form). A
+// fresh, unconfigured install defaults to the first free provider (Gemini) so
+// the suggested path costs nothing.
 function presetFor(cfg: AIConfig): Preset {
-  if (cfg.provider === 'anthropic') return PRESETS[0]
-  if (cfg.provider === 'google') return PRESETS[2]
+  if (!cfg.configured && !cfg.model) return PRESETS.find((p) => p.free)!
+  if (cfg.provider === 'anthropic') return byId('anthropic')
+  if (cfg.provider === 'google') return byId('google')
   const byURL = PRESETS.find((p) => p.baseUrl && cfg.baseUrl && p.baseUrl === cfg.baseUrl)
-  return byURL ?? PRESETS[PRESETS.length - 1] // fall back to Custom
+  return byURL ?? byId('custom')
 }
 
 function ConfigForm({ cfg, onSaved }: { cfg: AIConfig; onSaved: (c: AIConfig) => void }) {
@@ -234,13 +243,25 @@ function ConfigForm({ cfg, onSaved }: { cfg: AIConfig; onSaved: (c: AIConfig) =>
     setResult(null)
   }
 
+  // Turn a raw provider error into something actionable. The classic trap: a
+  // chat subscription (Claude Max, ChatGPT Plus) does NOT fund the API — that's
+  // a separate paid wallet — so "credit balance too low" confuses everyone.
+  const friendlyError = (raw: string): string => {
+    const low = raw.toLowerCase()
+    if (low.includes('credit') || low.includes('quota') || low.includes('billing') || low.includes('insufficient')) {
+      return t('ai.errCredit')
+    }
+    if (low.includes('invalid') && low.includes('key')) return t('ai.errKey')
+    return raw
+  }
+
   // Ask the provider which models this key can use, and populate the dropdown.
   const loadModels = async () => {
     setBusy('models'); setResult(null)
     try {
       const r = await api.aiModels({ provider, apiKey, baseUrl })
       if (r.error || !r.models?.length) {
-        setResult({ ok: false, msg: r.error ?? 'no models returned' })
+        setResult({ ok: false, msg: friendlyError(r.error ?? 'no models returned') })
       } else {
         const sorted = [...r.models].sort()
         setLiveModels(sorted)
@@ -256,7 +277,7 @@ function ConfigForm({ cfg, onSaved }: { cfg: AIConfig; onSaved: (c: AIConfig) =>
     setBusy('test'); setResult(null)
     try {
       const r = await api.aiTest({ provider, model, apiKey, baseUrl })
-      setResult(r.ok ? { ok: true, msg: t('ai.connected') } : { ok: false, msg: r.error ?? 'failed' })
+      setResult(r.ok ? { ok: true, msg: t('ai.connected') } : { ok: false, msg: friendlyError(r.error ?? 'failed') })
     } catch (e) {
       setResult({ ok: false, msg: String((e as Error).message ?? e) })
     } finally { setBusy(null) }
@@ -273,7 +294,13 @@ function ConfigForm({ cfg, onSaved }: { cfg: AIConfig; onSaved: (c: AIConfig) =>
 
   return (
     <div className="mt-4 flex flex-col gap-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] p-4">
-      {/* provider picker — a grid of presets covering the ecosystem */}
+      {/* free-first banner: the AI works without paying */}
+      <div className="rounded-md px-3 py-2 text-xs"
+        style={{ color: 'var(--color-ok)', background: 'color-mix(in srgb, var(--color-ok) 10%, transparent)' }}>
+        💡 {t('ai.freeBanner')}
+      </div>
+
+      {/* provider picker — free options first, each badged */}
       <div>
         <div className="mb-2 text-xs text-[var(--color-ink-dim)]">{t('ai.chooseAI')}</div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
@@ -281,9 +308,17 @@ function ConfigForm({ cfg, onSaved }: { cfg: AIConfig; onSaved: (c: AIConfig) =>
             const on = preset.id === p.id
             return (
               <button key={p.id} onClick={() => pickPreset(p)}
-                className="rounded-lg border p-2.5 text-left transition"
+                className="relative rounded-lg border p-2.5 text-left transition"
                 style={{ borderColor: on ? p.color : 'var(--color-border)', background: on ? `color-mix(in srgb, ${p.color} 14%, transparent)` : 'var(--color-surface-2)' }}>
-                <div className="text-sm font-semibold" style={{ color: on ? p.color : 'var(--color-ink)' }}>{p.label}</div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm font-semibold" style={{ color: on ? p.color : 'var(--color-ink)' }}>{p.label}</span>
+                  {p.free && (
+                    <span className="rounded-full px-1.5 text-[9px] font-medium"
+                      style={{ color: 'var(--color-ok)', background: 'color-mix(in srgb, var(--color-ok) 18%, transparent)' }}>
+                      {t('ai.free')}
+                    </span>
+                  )}
+                </div>
                 <div className="truncate text-[10px] text-[var(--color-ink-faint)]">{p.brand}</div>
               </button>
             )
