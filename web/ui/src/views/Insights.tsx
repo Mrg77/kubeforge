@@ -155,42 +155,77 @@ function AIOutput({ title, text }: { title: string; text: string }) {
   )
 }
 
-// PROVIDERS is the catalog powering the picker: brand, pre-filled models (so
-// nobody types a model name), and a direct link to create a key.
-const PROVIDERS: Record<AIProvider, {
-  label: string; brand: string; color: string; models: string[]; keyURL: string; keyLabel: string
-}> = {
-  anthropic: {
-    label: 'Claude', brand: 'Anthropic', color: '#d97757',
+// A Preset is one entry in the picker. `provider` is the backend format to use
+// (anthropic/google have native shapes; everything else is OpenAI-compatible and
+// just needs its baseUrl). `custom` lets the user point at any endpoint.
+interface Preset {
+  id: string
+  label: string
+  brand: string
+  color: string
+  provider: AIProvider // backend format
+  baseUrl?: string // for OpenAI-compatible providers
+  models: string[]
+  keyURL?: string
+  keyLabel?: string
+  custom?: boolean // free-form endpoint + model
+}
+
+// The catalog. Claude & Gemini use native formats; the rest all speak the
+// OpenAI-compatible API — one code path, any provider — differing only by
+// baseUrl. "Custom" covers self-hosted (LiteLLM, vLLM, Ollama) and anything new.
+const PRESETS: Preset[] = [
+  { id: 'anthropic', label: 'Claude', brand: 'Anthropic', color: '#d97757', provider: 'anthropic',
     models: ['claude-opus-4-8', 'claude-sonnet-5', 'claude-haiku-4-5-20251001'],
-    keyURL: 'https://console.anthropic.com/settings/keys', keyLabel: 'console.anthropic.com',
-  },
-  openai: {
-    label: 'ChatGPT', brand: 'OpenAI', color: '#10a37f',
-    models: ['gpt-4o', 'gpt-4o-mini', 'o3-mini'],
-    keyURL: 'https://platform.openai.com/api-keys', keyLabel: 'platform.openai.com',
-  },
-  google: {
-    label: 'Gemini', brand: 'Google', color: '#4285f4',
+    keyURL: 'https://console.anthropic.com/settings/keys', keyLabel: 'console.anthropic.com' },
+  { id: 'openai', label: 'ChatGPT', brand: 'OpenAI', color: '#10a37f', provider: 'openai',
+    baseUrl: 'https://api.openai.com', models: ['gpt-4o', 'gpt-4o-mini', 'o3-mini'],
+    keyURL: 'https://platform.openai.com/api-keys', keyLabel: 'platform.openai.com' },
+  { id: 'google', label: 'Gemini', brand: 'Google', color: '#4285f4', provider: 'google',
     models: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash'],
-    keyURL: 'https://aistudio.google.com/apikey', keyLabel: 'aistudio.google.com',
-  },
+    keyURL: 'https://aistudio.google.com/apikey', keyLabel: 'aistudio.google.com' },
+  { id: 'mistral', label: 'Mistral', brand: 'Mistral AI 🇫🇷', color: '#fa5310', provider: 'openai',
+    baseUrl: 'https://api.mistral.ai', models: ['mistral-large-latest', 'mistral-small-latest', 'open-mistral-nemo'],
+    keyURL: 'https://console.mistral.ai/api-keys', keyLabel: 'console.mistral.ai' },
+  { id: 'groq', label: 'Groq', brand: 'Groq (fast)', color: '#f55036', provider: 'openai',
+    baseUrl: 'https://api.groq.com/openai', models: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768'],
+    keyURL: 'https://console.groq.com/keys', keyLabel: 'console.groq.com' },
+  { id: 'deepseek', label: 'DeepSeek', brand: 'DeepSeek', color: '#4d6bfe', provider: 'openai',
+    baseUrl: 'https://api.deepseek.com', models: ['deepseek-chat', 'deepseek-reasoner'],
+    keyURL: 'https://platform.deepseek.com/api_keys', keyLabel: 'platform.deepseek.com' },
+  { id: 'xai', label: 'Grok', brand: 'xAI', color: '#8f9aa8', provider: 'openai',
+    baseUrl: 'https://api.x.ai', models: ['grok-4', 'grok-3', 'grok-3-mini'],
+    keyURL: 'https://console.x.ai', keyLabel: 'console.x.ai' },
+  { id: 'openrouter', label: 'OpenRouter', brand: '300+ models, 1 key', color: '#6467f2', provider: 'openai',
+    baseUrl: 'https://openrouter.ai/api', models: ['anthropic/claude-sonnet-4.5', 'openai/gpt-4o', 'google/gemini-2.5-pro', 'meta-llama/llama-3.3-70b-instruct'],
+    keyURL: 'https://openrouter.ai/keys', keyLabel: 'openrouter.ai' },
+  { id: 'custom', label: 'Custom', brand: 'any OpenAI-compatible endpoint', color: '#9aa7b4', provider: 'openai',
+    baseUrl: '', models: [], custom: true },
+]
+
+// Figure out which preset a saved config matches (for re-opening the form).
+function presetFor(cfg: AIConfig): Preset {
+  if (cfg.provider === 'anthropic') return PRESETS[0]
+  if (cfg.provider === 'google') return PRESETS[2]
+  const byURL = PRESETS.find((p) => p.baseUrl && cfg.baseUrl && p.baseUrl === cfg.baseUrl)
+  return byURL ?? PRESETS[PRESETS.length - 1] // fall back to Custom
 }
 
 function ConfigForm({ cfg, onSaved }: { cfg: AIConfig; onSaved: (c: AIConfig) => void }) {
   const { t } = useT()
-  const [provider, setProvider] = useState<AIProvider>(cfg.provider || 'anthropic')
-  const [model, setModel] = useState(cfg.model || PROVIDERS.anthropic.models[0])
+  const [preset, setPreset] = useState<Preset>(() => presetFor(cfg))
+  const [model, setModel] = useState(cfg.model || presetFor(cfg).models[0] || '')
   const [apiKey, setApiKey] = useState('')
-  const [baseUrl, setBaseUrl] = useState(cfg.baseUrl ?? '')
+  const [baseUrl, setBaseUrl] = useState(cfg.baseUrl ?? presetFor(cfg).baseUrl ?? '')
   const [busy, setBusy] = useState<'test' | 'save' | null>(null)
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null)
 
-  const meta = PROVIDERS[provider]
+  const provider = preset.provider
 
-  const pickProvider = (p: AIProvider) => {
-    setProvider(p)
-    setModel(PROVIDERS[p].models[0]) // sensible default model for that brand
+  const pickPreset = (p: Preset) => {
+    setPreset(p)
+    setModel(p.models[0] ?? '')
+    setBaseUrl(p.baseUrl ?? '')
     setResult(null)
   }
 
@@ -215,19 +250,18 @@ function ConfigForm({ cfg, onSaved }: { cfg: AIConfig; onSaved: (c: AIConfig) =>
 
   return (
     <div className="mt-4 flex flex-col gap-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] p-4">
-      {/* provider picker */}
+      {/* provider picker — a grid of presets covering the ecosystem */}
       <div>
         <div className="mb-2 text-xs text-[var(--color-ink-dim)]">{t('ai.chooseAI')}</div>
-        <div className="grid grid-cols-3 gap-2">
-          {(Object.keys(PROVIDERS) as AIProvider[]).map((p) => {
-            const m = PROVIDERS[p]
-            const on = provider === p
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+          {PRESETS.map((p) => {
+            const on = preset.id === p.id
             return (
-              <button key={p} onClick={() => pickProvider(p)}
-                className="rounded-lg border p-3 text-left transition"
-                style={{ borderColor: on ? m.color : 'var(--color-border)', background: on ? `color-mix(in srgb, ${m.color} 12%, transparent)` : 'var(--color-surface-2)' }}>
-                <div className="text-sm font-semibold" style={{ color: on ? m.color : 'var(--color-ink)' }}>{m.label}</div>
-                <div className="text-[11px] text-[var(--color-ink-faint)]">{m.brand}</div>
+              <button key={p.id} onClick={() => pickPreset(p)}
+                className="rounded-lg border p-2.5 text-left transition"
+                style={{ borderColor: on ? p.color : 'var(--color-border)', background: on ? `color-mix(in srgb, ${p.color} 14%, transparent)` : 'var(--color-surface-2)' }}>
+                <div className="text-sm font-semibold" style={{ color: on ? p.color : 'var(--color-ink)' }}>{p.label}</div>
+                <div className="truncate text-[10px] text-[var(--color-ink-faint)]">{p.brand}</div>
               </button>
             )
           })}
@@ -237,18 +271,26 @@ function ConfigForm({ cfg, onSaved }: { cfg: AIConfig; onSaved: (c: AIConfig) =>
       <div className="grid gap-3 md:grid-cols-2">
         <label className="text-sm">
           <span className="text-[var(--color-ink-dim)]">{t('ai.model')}</span>
-          <select value={model} onChange={(e) => { setModel(e.target.value); setResult(null) }}
-            className="mt-1 w-full rounded-md bg-[var(--color-surface-2)] px-3 py-1.5 outline-none mono">
-            {meta.models.map((m) => <option key={m} value={m}>{m}</option>)}
-          </select>
+          {preset.custom ? (
+            <input value={model} onChange={(e) => { setModel(e.target.value); setResult(null) }}
+              placeholder="model-name"
+              className="mt-1 w-full rounded-md bg-[var(--color-surface-2)] px-3 py-1.5 outline-none mono" />
+          ) : (
+            <select value={model} onChange={(e) => { setModel(e.target.value); setResult(null) }}
+              className="mt-1 w-full rounded-md bg-[var(--color-surface-2)] px-3 py-1.5 outline-none mono">
+              {preset.models.map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+          )}
         </label>
         <label className="text-sm">
           <span className="flex items-center justify-between text-[var(--color-ink-dim)]">
             {t('ai.apiKey')}
-            <a href={meta.keyURL} target="_blank" rel="noopener"
-              className="text-[11px] text-[var(--color-accent)] hover:underline">
-              {t('ai.getKey')} {meta.keyLabel}
-            </a>
+            {preset.keyURL && (
+              <a href={preset.keyURL} target="_blank" rel="noopener"
+                className="text-[11px] text-[var(--color-accent)] hover:underline">
+                {t('ai.getKey')} {preset.keyLabel}
+              </a>
+            )}
           </span>
           <input type="password" value={apiKey}
             onChange={(e) => { setApiKey(e.target.value); setResult(null) }}
@@ -257,11 +299,12 @@ function ConfigForm({ cfg, onSaved }: { cfg: AIConfig; onSaved: (c: AIConfig) =>
         </label>
       </div>
 
+      {/* base URL: editable for Custom, shown read-only-ish for OpenAI-compat presets */}
       {provider === 'openai' && (
         <label className="text-sm">
           <span className="text-[var(--color-ink-dim)]">{t('ai.baseUrl')}</span>
-          <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)}
-            placeholder="https://api.openai.com"
+          <input value={baseUrl} onChange={(e) => { setBaseUrl(e.target.value); setResult(null) }}
+            placeholder="https://api.openai.com  ·  or your own endpoint"
             className="mt-1 w-full rounded-md bg-[var(--color-surface-2)] px-3 py-1.5 outline-none mono" />
         </label>
       )}

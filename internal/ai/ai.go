@@ -19,7 +19,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -122,7 +124,7 @@ func (c *Client) openAI(ctx context.Context, system, user string) (string, error
 			{"role": "user", "content": user},
 		},
 	})
-	url := c.baseURL("https://api.openai.com") + "/v1/chat/completions"
+	url := chatCompletionsURL(c.baseURL("https://api.openai.com"))
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	req.Header.Set("content-type", "application/json")
 	req.Header.Set("authorization", "Bearer "+c.cfg.APIKey)
@@ -193,11 +195,68 @@ func (c *Client) baseURL(def string) string {
 	return def
 }
 
+// chatCompletionsURL builds the OpenAI-compatible endpoint from a base, but is
+// forgiving about how much of the path the caller already provided — so any
+// OpenAI-compatible provider (Mistral, Groq, DeepSeek, xAI, OpenRouter, a local
+// LiteLLM/vLLM…) works whether its base is a host, a host+/v1, or the full URL.
+func chatCompletionsURL(base string) string {
+	b := strings.TrimRight(base, "/")
+	switch {
+	case strings.HasSuffix(b, "/chat/completions"):
+		return b // already the full endpoint
+	case strings.HasSuffix(b, "/v1"):
+		return b + "/chat/completions" // base includes the version segment
+	default:
+		return b + "/v1/chat/completions" // bare host
+	}
+}
+
 func (c *Client) do(req *http.Request, out any) error {
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	return json.NewDecoder(resp.Body).Decode(out)
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	// On an HTTP error, providers disagree on the error shape (object vs string,
+	// nested vs flat). Surface a clean message from the raw body + status rather
+	// than letting a strict decode fail with "cannot unmarshal…".
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("%s", errMessage(raw, resp.StatusCode))
+	}
+	if err := json.Unmarshal(raw, out); err != nil {
+		return fmt.Errorf("unexpected response (HTTP %d)", resp.StatusCode)
+	}
+	return nil
+}
+
+// errMessage extracts a human message from a provider's error body, tolerating
+// {"error":{"message":…}}, {"error":"…"}, {"message":…}, or plain text.
+func errMessage(body []byte, status int) string {
+	var probe struct {
+		Error   json.RawMessage `json:"error"`
+		Message string          `json:"message"`
+	}
+	_ = json.Unmarshal(body, &probe)
+	if probe.Message != "" {
+		return probe.Message
+	}
+	if len(probe.Error) > 0 {
+		// try object {message}
+		var obj struct {
+			Message string `json:"message"`
+		}
+		if json.Unmarshal(probe.Error, &obj) == nil && obj.Message != "" {
+			return obj.Message
+		}
+		// try bare string
+		var str string
+		if json.Unmarshal(probe.Error, &str) == nil && str != "" {
+			return str
+		}
+	}
+	if s := strings.TrimSpace(string(body)); s != "" && len(s) < 300 {
+		return s
+	}
+	return fmt.Sprintf("request failed (HTTP %d)", status)
 }
