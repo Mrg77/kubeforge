@@ -50,8 +50,8 @@ Le pari est simple : ne pas faire _un énième navigateur de ressources_. Faire 
 - **Topology** — cinq lentilles sur le même graphe :
   - **Resource stack** _(la vedette)_ — un namespace en graphe empilé, du haut niveau (Ingress) au bas niveau (Secrets, RBAC, stockage). Les nœuds portent des alertes SecOps inline et un badge `CRD` pour les ressources d'opérateurs ; survolez pour les infos (IP, image, coût mensuel), cliquez pour le manifeste live (secrets masqués) et les events récents.
   - **Namespaces / Workload graph / By node / Heatmap** — le même graphe en cartes par namespace, un graphe force-directed de workloads, une vue par node, ou une heatmap de parc qui passe l'échelle des 500+ pods.
-- **FinOps** — un vrai dashboard de coûts : jauge d'efficacité (utilisé vs réservé), prix éditables avec presets cloud, coût **groupé par workload** (dépliable vers les pods) avec filtre/recherche/tri, un graphe des top gaspilleurs, et la treemap du coût par namespace.
-- **SecOps** — un scan de posture déterministe avec un **score de 0 à 100** : conteneurs privilégiés, `hostNetwork`/`hostPID`, capabilities dangereuses, exécution en root, tags d'image mutables, namespaces sans NetworkPolicy, cluster-admin mal attribué. Filtre par sévérité/catégorie/texte ; chaque finding a un _pourquoi_, un correctif, et un saut vers le Resource stack.
+- **FinOps** — un vrai dashboard de coûts : jauge d'efficacité (utilisé vs réservé), coût **groupé par workload** (dépliable vers les pods) avec filtre/recherche/tri, un graphe des plus gros gaspillages, et la treemap du coût par namespace. La tarification **détecte automatiquement ton cloud** via le `providerID` des nodes (AWS/GCP/Azure) et applique les prix correspondants — un cluster local (kind/minikube) est signalé honnêtement « estimation seulement, pas de facturation réelle ». Tu peux toujours surcharger le prix par cœur / par Go.
+- **SecOps** — un scan de posture déterministe avec un **score de 0 à 100** calculé sur _tes_ workloads (namespaces système exclus, pour que les pods privilégiés de Kubernetes ne plombent pas ta note). Il signale : conteneurs privilégiés, `hostNetwork`/`hostPID`, capabilities dangereuses, exécution en root, tags d'image mutables, namespaces sans NetworkPolicy, cluster-admin mal attribué. Les findings identiques sont **groupés** (« peut s'exécuter en root · 33 objets » au lieu de 33 lignes), le bruit système est masqué par défaut, chaque finding a un _pourquoi_ + un correctif et un saut vers le Resource stack, et tout le rapport s'exporte en **CSV**.
 - **Storage** — PV, PVC et StorageClass au même endroit, avec les volumes orphelins et les claims non montés mis en évidence et **chiffrés en coût** (du stockage que vous payez sans l'utiliser).
 - **Resources** — un navigateur universel bâti sur le discovery + dynamic client : il liste tout ce que l'API server connaît, y compris les ressources custom.
 - **Insights** — les tendances dans le temps, enregistrées localement en SQLite, plus une **couche IA optionnelle** (voir plus bas).
@@ -124,6 +124,20 @@ Les chiffres d'usage FinOps et la bande réservé-vs-utilisé ont besoin de [met
 
 ---
 
+## Pensé pour les vrais clusters
+
+Une démo tient sur trois pods ; un vrai cluster en a des centaines. KubeForge est conçu pour rester lisible et rapide à cette échelle :
+
+- **Findings groupés.** SecOps regroupe les findings identiques — « peut s'exécuter en root · 33 objets » est une carte dépliable, pas 33. Les namespaces système (kube-system, kindnet…) sont masqués par défaut car ils sont privilégiés _par design_ et noieraient tes vrais problèmes.
+- **Score de posture honnête.** La note 0–100 est calculée sur tes workloads uniquement, pour que les pods système privilégiés de Kubernetes ne tirent pas chaque cluster vers un « F ».
+- **Couches plafonnées.** Le Resource stack affiche les N premiers objets par couche avec un « +N de plus », et remonte les problèmes (en panne, puis à risque) en tête — un namespace de 100 pods reste lisible sans jamais cacher ce qui compte. La heatmap de topologie passe l'échelle des 500+ pods.
+- **Tables paginées.** Les longues listes (la table de pods de la vue d'ensemble) sont recherchables et paginées : l'UI s'affiche instantanément au lieu d'un mur de lignes.
+- **Scans mis en cache.** Les scans complets (SecOps, FinOps, Stockage) sont mémorisés quelques secondes : la rafale d'appels d'une seule vue se réduit à un vrai scan.
+
+## Bilingue (FR / EN)
+
+Toute l'UI est disponible en **français et en anglais** — un bouton dans la barre latérale, la langue du navigateur détectée au premier lancement, ton choix mémorisé. Les findings de sécurité, les libellés de coût, le resource stack — tout est traduit, pas seulement les menus.
+
 ## Comment c'est construit
 
 - **Go + client-go** pour le backend. Un client typé pour les vues courantes, et le **discovery + dynamic client** pour le navigateur de ressources universel — c'est comme ça qu'il liste des CRD dont il n'a jamais entendu parler.
@@ -136,7 +150,7 @@ Les chiffres d'usage FinOps et la bande réservé-vs-utilisé ont besoin de [met
 
 ## Statut & roadmap
 
-KubeForge est jeune et avance vite. Tous les piliers ci-dessus fonctionnent de bout en bout, il s'installe via un cask Homebrew et un binaire de release, et les dashboards Resource stack, FinOps et SecOps sont validés sur un vrai cluster multi-nodes. Au programme ensuite : signaux d'inodes et de pression disque par node, alertes prédictives de saturation du stockage, et des arêtes CRD plus riches dans le stack.
+KubeForge est jeune et avance vite. Tous les piliers ci-dessus fonctionnent de bout en bout, il s'installe via un cask Homebrew et un binaire de release, il est bilingue (FR/EN), et les dashboards Resource stack, FinOps et SecOps sont validés sur un vrai cluster multi-nodes avec groupement, pagination, détection automatique des prix cloud et cache des scans pour l'échelle. Au programme ensuite : signaux d'inodes et de pression disque par node, alertes prédictives de saturation du stockage, et des arêtes CRD plus riches dans le stack.
 
 Les issues et les idées sont les bienvenues.
 

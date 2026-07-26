@@ -50,8 +50,8 @@ The bet is simple: don't build _yet another resource browser_. Build the three o
 - **Topology** — five lenses over the same cluster graph:
   - **Resource stack** _(the headline)_ — a namespace as a layered graph, high-level (Ingress) down to low-level (Secrets, RBAC, storage). Nodes carry inline SecOps warnings and a `CRD` badge for operator resources; hover for facts (IP, image, monthly cost), click for the live manifest (secrets redacted) and recent events.
   - **Namespaces / Workload graph / By node / Heatmap** — the same graph as namespace cards, a force-directed workload graph, a per-node view, or a fleet heatmap that scales past 500 pods.
-- **FinOps** — a real cost dashboard: a cluster-efficiency gauge (used vs reserved CPU), editable pricing with cloud presets, cost **grouped by workload** (expandable to pods) with filter/search/sort, a top-wasters chart, and the spend-by-namespace treemap.
-- **SecOps** — a deterministic security-posture scan with a **0–100 posture score**: privileged containers, `hostNetwork`/`hostPID`, dangerous capabilities, run-as-root, mutable image tags, namespaces with no NetworkPolicy, cluster-admin handed to the wrong subjects. Filter by severity/category/text; every finding has a plain _why_, a fix, and a jump into the Resource stack.
+- **FinOps** — a real cost dashboard: a cluster-efficiency gauge (used vs reserved CPU), cost **grouped by workload** (expandable to pods) with filter/search/sort, a top-wasters chart, and the spend-by-namespace treemap. Pricing **auto-detects your cloud** from the nodes' `providerID` (AWS/GCP/Azure) and applies matching defaults — a local cluster (kind/minikube) is honestly flagged "estimate only, no real billing". You can still override the per-core / per-GB price.
+- **SecOps** — a deterministic security-posture scan with a **0–100 posture score** computed from _your_ workloads (system namespaces excluded, so Kubernetes' own privileged pods don't sink your grade). It flags privileged containers, `hostNetwork`/`hostPID`, dangerous capabilities, run-as-root, mutable image tags, namespaces with no NetworkPolicy, and cluster-admin on the wrong subjects. Identical findings are **grouped** ("may run as root · 33 objects" instead of 33 rows), system noise is hidden by default, every finding has a plain _why_ + fix and a jump into the Resource stack, and the whole report exports to **CSV**.
 - **Storage** — PVs, PVCs and StorageClasses in one place, with orphaned volumes and unmounted claims called out and **costed** (that's storage you're paying for and not using).
 - **Resources** — a universal browser built on the discovery + dynamic client, so it lists anything the API server knows about, including custom resources.
 - **Insights** — trends over time, recorded locally in SQLite, plus an **opt-in AI layer** (see below).
@@ -124,6 +124,20 @@ FinOps usage numbers and the reserved-vs-used band need [metrics-server](https:/
 
 ---
 
+## Built for real clusters
+
+A demo looks fine on three pods; a real cluster has hundreds. KubeForge is built to stay readable and fast at that size:
+
+- **Grouped findings.** SecOps buckets identical findings — "may run as root · 33 objects" is one expandable card, not 33. System namespaces (kube-system, kindnet…) are hidden by default because they're privileged _by design_ and would otherwise bury your own issues.
+- **Honest posture score.** The 0–100 grade is computed from your workloads only, so Kubernetes' own privileged system pods don't drag every cluster to an "F".
+- **Capped layers.** The Resource stack shows the first N objects per layer with a "+N more" expander, and sorts problems (unhealthy, then risky) to the front — so a 100-pod namespace stays legible and never hides what needs attention. The topology heatmap scales past 500 pods.
+- **Paginated tables.** Long lists (the Overview pod table) are searchable and paginated, so the UI renders instantly instead of a wall of rows.
+- **Cached scans.** The whole-cluster scans (SecOps, FinOps, Storage) are memoized for a few seconds, so the burst of calls a single view fires collapses into one real scan.
+
+## Bilingual (EN / FR)
+
+The whole UI is available in **English and French** — a toggle in the sidebar, your browser's language detected on first run, your choice remembered. Security findings, cost labels, the resource stack — everything translates, not just the menus.
+
 ## How it's built
 
 - **Go + client-go** for the backend. A typed client for the common views, and the **discovery + dynamic client** for the universal resource browser — that's how it lists CRDs it's never heard of.
@@ -136,7 +150,7 @@ FinOps usage numbers and the reserved-vs-used band need [metrics-server](https:/
 
 ## Status & roadmap
 
-KubeForge is young and moving fast. All the pillars above work end-to-end, it ships as a Homebrew cask and a release binary, and the Resource stack, FinOps and SecOps dashboards are validated against a real multi-node cluster. On the list next: per-node inode and disk-pressure signals, predictive storage-saturation alerts, and richer CRD-aware edges in the stack.
+KubeForge is young and moving fast. All the pillars above work end-to-end, it ships as a Homebrew cask and a release binary, it's bilingual (EN/FR), and the Resource stack, FinOps and SecOps dashboards are validated against a real multi-node cluster with grouping, pagination, cloud-price auto-detection and scan caching for scale. On the list next: per-node inode and disk-pressure signals, predictive storage-saturation alerts, and richer CRD-aware edges in the stack.
 
 Issues and ideas are welcome.
 
