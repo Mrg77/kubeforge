@@ -58,16 +58,18 @@ Le pari est simple : ne pas faire _un énième navigateur de ressources_. Faire 
 
 ---
 
-## La couche IA — optionnelle, avec votre propre clé
+## La couche IA — optionnelle, et gratuite
 
-Il y a un bouton **Ask AI** dans le header, sur chaque vue. C'est totalement optionnel et désactivé par défaut.
+Il y a un bouton **Ask AI** dans le header, sur chaque vue. C'est totalement optionnel et désactivé par défaut. Quand vous l'activez, KubeForge fait deux choses qu'un dashboard classique ne sait pas faire :
 
-Quand vous l'activez, vous fournissez votre propre clé — **Anthropic**, ou n'importe quel endpoint **compatible OpenAI**, y compris un **Ollama local** pour que rien ne quitte votre machine. KubeForge fait alors deux choses qu'un dashboard classique ne sait pas faire :
+1. **Résumer & prioriser** — transformer un mur de findings en « voici les trois choses à corriger en premier, et pourquoi », en nommant les vrais workloads.
+2. **Analyser les tendances** — lire l'historique et vous donner la _direction_ en clair : est-ce que ça empire, qu'est-ce qui l'a probablement causé (un déploiement à telle heure ?), et quoi vérifier.
 
-1. **Résumer & prioriser** — transformer un mur de findings en « voici les trois choses à corriger en premier, et pourquoi ».
-2. **Analyser les tendances** — regarder l'historique enregistré et vous donner la _direction_ : le gaspillage augmente-t-il, ce correctif de sécurité a-t-il tenu ?
+**Pas besoin de payer.** Choisissez n'importe quel fournisseur — **Gemini** et **Groq** donnent une **clé API gratuite** (sans carte), et ils sont mis en avant. **Claude, ChatGPT, Mistral, DeepSeek, Grok, OpenRouter** et n'importe quel **endpoint compatible OpenAI custom** (LiteLLM/vLLM auto-hébergé…) sont là aussi, pour ceux qui ont déjà une clé API payante. Un abonnement chat (Claude Max, ChatGPT Plus) n'**inclut pas** l'accès API — KubeForge vous le dit au lieu de vous laisser tomber sur une erreur cryptique « pas de crédit ». Saisissez votre clé, cliquez **charger mes modèles** pour récupérer votre vraie liste, **testez la connexion**, enregistrez.
 
-**Ce qui est envoyé :** uniquement les _findings_ — des compteurs, des titres, des chiffres de tendance. Jamais d'objets bruts du cluster, jamais de secrets. La clé est stockée localement (`0600`) et n'est jamais renvoyée au navigateur. Si vous ne configurez rien, tout le reste fonctionne exactement pareil.
+**Parle votre langue.** L'analyse revient dans la langue de l'UI (FR/EN).
+
+**Ce qui est envoyé :** uniquement les _findings_ — des compteurs, des titres, des noms de ressources, des chiffres de tendance. Jamais d'objets bruts du cluster, jamais de secrets. La clé est stockée localement (`0600`) et n'est jamais renvoyée au navigateur. Si vous ne configurez rien, tout le reste fonctionne exactement pareil.
 
 ---
 

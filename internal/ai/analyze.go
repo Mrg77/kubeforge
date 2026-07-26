@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/Mrg77/kubeforge/internal/finops"
 	"github.com/Mrg77/kubeforge/internal/history"
@@ -85,23 +86,61 @@ Keep it tight. Be honest that costs are estimates.`
 }
 
 // AnalyzeTrends reads the history snapshots and tells the operator whether the
-// cluster is getting better or worse, and what's driving the change.
+// cluster is getting better or worse, and what's driving the change. Rather than
+// dumping every raw snapshot (which makes the model recite numbers), it computes
+// the start→now deltas and the sharpest change point, and asks for a plain,
+// actionable read — no "X went from 1 to 2" narration.
 func (c *Client) AnalyzeTrends(ctx context.Context, snaps []history.Snapshot, lang string) (string, error) {
 	if len(snaps) < 2 {
 		return "", fmt.Errorf("not enough history yet to analyze trends (need at least 2 snapshots)")
 	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "Cluster posture over time (oldest to newest), one line per snapshot:\n")
-	for _, s := range snaps {
-		fmt.Fprintf(&b, "%s | pods=%d unhealthy=%d restarts=%d | sec: crit=%d high=%d med=%d | cost: reserved=$%.0f wasted=$%.0f\n",
-			s.Time.Format("2006-01-02 15:04"), s.Pods, s.Unhealthy, s.Restarts,
-			s.SecCritical, s.SecHigh, s.SecMedium, s.MonthlyReserved, s.MonthlyWasted)
+	first, last := snaps[0], snaps[len(snaps)-1]
+	span := last.Time.Sub(first.Time)
+
+	// Find the single snapshot with the biggest jump in a "badness" score vs the
+	// previous one — usually the moment something regressed.
+	badness := func(s history.Snapshot) float64 {
+		return float64(s.SecCritical*10+s.SecHigh*4+s.SecMedium) + s.MonthlyWasted/10 + float64(s.Unhealthy*3)
 	}
+	jumpIdx, jumpDelta := 0, 0.0
+	for i := 1; i < len(snaps); i++ {
+		if d := badness(snaps[i]) - badness(snaps[i-1]); d > jumpDelta {
+			jumpDelta, jumpIdx = d, i
+		}
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "Cluster posture change over the last %s (%d snapshots).\n\n", humanDur(span), len(snaps))
+	fmt.Fprintf(&b, "START (%s) → NOW (%s):\n", first.Time.Format("Jan 2 15:04"), last.Time.Format("Jan 2 15:04"))
+	fmt.Fprintf(&b, "- Unhealthy pods: %d → %d\n", first.Unhealthy, last.Unhealthy)
+	fmt.Fprintf(&b, "- Security (your workloads): critical %d→%d, high %d→%d, medium %d→%d\n",
+		first.SecCritical, last.SecCritical, first.SecHigh, last.SecHigh, first.SecMedium, last.SecMedium)
+	fmt.Fprintf(&b, "- Estimated wasted cost: $%.0f/mo → $%.0f/mo (of $%.0f reserved)\n",
+		first.MonthlyWasted, last.MonthlyWasted, last.MonthlyReserved)
+	fmt.Fprintf(&b, "- Pod restarts (per snapshot): %d → %d\n", first.Restarts, last.Restarts)
+	if jumpDelta > 0 && jumpIdx > 0 {
+		fmt.Fprintf(&b, "\nSharpest regression: around %s, posture worsened noticeably in one step.\n",
+			snaps[jumpIdx].Time.Format("Jan 2 15:04"))
+	}
+
 	user := b.String() + `
-Analyze the trend:
-1. Is the cluster getting healthier, safer, and cheaper — or worse? State the direction plainly.
-2. Call out the biggest movements (e.g. "wasted spend rose 40% then recovered", "critical findings doubled").
-3. One or two concrete things to watch or act on.
-Be specific about the numbers.`
+Write a short trend read for a DevOps engineer. Rules:
+- Lead with the VERDICT: is the cluster getting better or worse, and does it need attention now?
+- Explain what likely DROVE the change in plain terms (e.g. "a workload was deployed with no limits and privileged access"), not a play-by-play of the numbers. Do NOT narrate "X went from 1 to 2".
+- End with 1-2 concrete next steps.
+- If the change lines up at one time, say a deployment/change probably caused it and to check what shipped then.
+- Costs are estimates, not a bill. Keep it under ~120 words.`
 	return c.Complete(ctx, systemPromptFor(lang), user)
+}
+
+// humanDur renders a duration compactly ("3h", "2d", "45m").
+func humanDur(d time.Duration) string {
+	switch {
+	case d >= 48*time.Hour:
+		return fmt.Sprintf("%dd", int(d.Hours())/24)
+	case d >= time.Hour:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
 }

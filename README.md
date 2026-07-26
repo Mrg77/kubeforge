@@ -58,16 +58,18 @@ The bet is simple: don't build _yet another resource browser_. Build the three o
 
 ---
 
-## The AI layer — opt-in, bring-your-own-key
+## The AI layer — opt-in, and free to use
 
-There's an **Ask AI** button in the header on every view. It's completely optional and off by default.
+There's an **Ask AI** button in the header on every view. It's completely optional and off by default. When you turn it on, KubeForge does two things a plain dashboard can't:
 
-When you turn it on, you provide your own key — **Anthropic**, or any **OpenAI-compatible** endpoint, including a **local Ollama** so nothing leaves your machine at all. KubeForge then does two things a plain dashboard can't:
+1. **Summarize & prioritize** — turn a wall of findings into "here are the three things to fix first, and why", naming the actual workloads.
+2. **Analyze trends** — read the recorded history and tell you the _direction_ in plain words: is it getting worse, what likely caused it (a deployment around a given time?), and what to check.
 
-1. **Summarize & prioritize** — turn a wall of findings into "here are the three things to fix first, and why."
-2. **Analyze trends** — look at the recorded history and tell you the _direction_: is waste creeping up, did that security fix actually stick?
+**No need to pay.** Pick any provider — **Gemini** and **Groq** hand out a **free API key** (no card), and they're surfaced first. **Claude, ChatGPT, Mistral, DeepSeek, Grok, OpenRouter** and any **Custom OpenAI-compatible endpoint** (self-hosted LiteLLM/vLLM, …) are there too for those who already have a paid API key. A chat subscription (Claude Max, ChatGPT Plus) does **not** include API access — KubeForge says so instead of letting you hit a cryptic "no credit" error. Enter your key, click **load my models** to pull your real model list, **Test connection**, save.
 
-**What it sends:** only the _findings_ — counts, titles, trend numbers. Never raw cluster objects, never secrets. The key is stored locally (`0600`) and is never sent back to the browser. If you never configure it, every other feature works exactly the same.
+**Speaks your language.** The analysis comes back in the UI's language (EN/FR).
+
+**What it sends:** only the _findings_ — counts, titles, resource names, trend numbers. Never raw cluster objects, never secrets. The key is stored locally (`0600`) and is never sent back to the browser. If you never configure it, every other feature works exactly the same.
 
 ---
 
