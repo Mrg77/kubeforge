@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, type StorageReport } from '../api'
 import { Card, Stat, Spinner, ErrorNote } from '../lib'
+import { useT } from '../i18n'
 
 // ~$/GB-month for provisioned block storage — same order of magnitude the FinOps
 // PVC cost uses, so the two views agree. Rough, for ranking not billing.
@@ -10,6 +11,7 @@ const GB_MONTH = 0.1
 // waste that hides in them called out — orphaned volumes and unmounted claims,
 // now costed so wasted storage shows up as dollars.
 export function Storage() {
+  const { t } = useT()
   const [rep, setRep] = useState<StorageReport | null>(null)
   const [err, setErr] = useState<string | null>(null)
 
@@ -26,21 +28,21 @@ export function Storage() {
   return (
     <div className="flex flex-col gap-6">
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
-        <Stat label="Capacity" value={`${rep.totalCapacityGB} GB`} hint={`${rep.volumes.length} volumes`} />
-        <Stat label="Est. cost / mo" value={`$${round0(monthly)}`} hint={`~$${GB_MONTH}/GB·mo`} />
+        <Stat label={t('sto.capacity')} value={`${rep.totalCapacityGB} GB`} hint={t('sto.volumes', { n: rep.volumes.length })} />
+        <Stat label={t('fin.estCostMo')} value={`$${round0(monthly)}`} hint={`~$${GB_MONTH}/GB·mo`} />
         <Stat
-          label="Orphaned"
+          label={t('sto.orphaned')}
           value={`${rep.orphanedCapacityGB} GB`}
           tone={rep.orphanedCapacityGB > 0 ? 'warn' : 'ok'}
-          hint={orphanCost > 0 ? `~$${round0(orphanCost)}/mo wasted` : 'released / unbound'}
+          hint={orphanCost > 0 ? t('sto.wastedMo', { n: round0(orphanCost) }) : t('sto.orphanedHint')}
         />
         <Stat
-          label="Unmounted PVCs"
+          label={t('sto.unmounted')}
           value={rep.unmountedClaims}
           tone={rep.unmountedClaims > 0 ? 'warn' : 'ok'}
-          hint="bound, nothing uses them"
+          hint={t('sto.unmountedHint')}
         />
-        <Stat label="Storage classes" value={rep.classes.length} />
+        <Stat label={t('sto.classes')} value={rep.classes.length} />
       </div>
 
       <Panel title={`Persistent Volumes (${rep.volumes.length})`}>

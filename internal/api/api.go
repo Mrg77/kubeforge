@@ -200,28 +200,31 @@ func parseSince(s string) time.Duration {
 func (s *Server) handleFinOps(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := reqCtx(r)
 	defer cancel()
-	prices := finops.Prices{}
+	// Detect the cloud so cost defaults match where the cluster runs (and so we
+	// can be honest that a local cluster has no real bill).
+	provider := s.cluster.DetectProvider(ctx)
+
+	// Prices: explicit query override wins; otherwise the detected provider's
+	// defaults. A fully-unset query means "use the auto default".
+	prices := finops.PricesFor(provider.ID)
 	if v := parseFloat(r.URL.Query().Get("cpuHour")); v > 0 {
 		prices.PerCPUHour = v
 	}
 	if v := parseFloat(r.URL.Query().Get("gbHour")); v > 0 {
 		prices.PerGBHour = v
 	}
-	// If only one is set, fill the other from defaults so we don't zero it out.
-	if (prices.PerCPUHour > 0) != (prices.PerGBHour > 0) {
-		if prices.PerCPUHour == 0 {
-			prices.PerCPUHour = finops.DefaultPrices.PerCPUHour
-		}
-		if prices.PerGBHour == 0 {
-			prices.PerGBHour = finops.DefaultPrices.PerGBHour
-		}
-	}
 	rep, err := finops.Scan(ctx, s.cluster.Kube, s.cluster.Metrics, prices)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, rep)
+	// Surface the detected provider alongside the report so the UI can label the
+	// pricing (auto vs override) and flag local estimates.
+	out := struct {
+		*finops.Report
+		Provider cluster.CloudProvider `json:"provider"`
+	}{Report: rep, Provider: provider}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func parseFloat(s string) float64 {

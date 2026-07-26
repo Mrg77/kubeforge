@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api, type LayeredGraph, type GraphNode, type EventLine } from '../../api'
 import { Spinner, ErrorNote } from '../../lib'
+import { useT } from '../../i18n'
 
 // Layered — the resource stack of a namespace, drawn top (high-level: traffic in)
 // to bottom (low-level: config, identity, storage). Every node is a real object
@@ -45,6 +46,7 @@ const ROW_H = 78
 const PAD = 24
 
 export function Layered() {
+  const { t } = useT()
   const [nsList, setNsList] = useState<string[] | null>(null)
   const [ns, setNs] = useState<string | null>(null)
   const [graph, setGraph] = useState<LayeredGraph | null>(null)
@@ -79,7 +81,7 @@ export function Layered() {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs text-[var(--color-ink-dim)]">namespace</span>
+        <span className="text-xs text-[var(--color-ink-dim)]">{t('topo.namespace')}</span>
         <select
           value={ns ?? ''}
           onChange={(e) => setNs(e.target.value)}
@@ -88,7 +90,7 @@ export function Layered() {
           {nsList?.map((n) => <option key={n} value={n}>{n}</option>)}
         </select>
         <span className="ml-2 text-[11px] text-[var(--color-ink-faint)]">
-          traffic in at the top · config, identity &amp; storage at the bottom
+          {t('topo.stackHint')}
         </span>
       </div>
 
@@ -96,8 +98,7 @@ export function Layered() {
         <Spinner />
       ) : graph.nodes.length === 0 ? (
         <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-10 text-center text-sm text-[var(--color-ink-dim)]">
-          Nothing to show — <span className="mono">{graph.namespace}</span> has no workloads or
-          resources yet.
+          {t('topo.empty', { ns: graph.namespace })}
         </div>
       ) : (
         <Stack graph={graph} hover={hover} setHover={setHover} onSelect={setSelected} />
@@ -284,6 +285,7 @@ function ObjectDrawer({ node, namespace, onClose }: {
   namespace: string
   onClose: () => void
 }) {
+  const { t } = useT()
   const meta = kindOf(node.kind)
   const [tab, setTab] = useState<'detail' | 'events' | 'yaml'>('detail')
   const [yaml, setYaml] = useState<string | null>(null)
@@ -321,13 +323,13 @@ function ObjectDrawer({ node, namespace, onClose }: {
         </header>
 
         <div className="flex gap-1 border-b border-[var(--color-border)] px-3 py-2 text-xs">
-          {(['detail', 'events', 'yaml'] as const).map((t) => (
-            <button key={t}
-              onClick={() => { setTab(t); if (t === 'yaml') loadYAML(); if (t === 'events') loadEvents() }}
-              className={'rounded px-3 py-1 capitalize ' + (tab === t
+          {(['detail', 'events', 'yaml'] as const).map((tabId) => (
+            <button key={tabId}
+              onClick={() => { setTab(tabId); if (tabId === 'yaml') loadYAML(); if (tabId === 'events') loadEvents() }}
+              className={'rounded px-3 py-1 ' + (tab === tabId
                 ? 'bg-[var(--color-accent)] text-black font-medium'
                 : 'text-[var(--color-ink-dim)] hover:text-[var(--color-ink)]')}>
-              {t === 'yaml' ? 'manifest' : t}
+              {tabId === 'yaml' ? t('topo.tab.manifest') : tabId === 'events' ? t('topo.tab.events') : t('topo.tab.detail')}
             </button>
           ))}
         </div>
@@ -337,7 +339,7 @@ function ObjectDrawer({ node, namespace, onClose }: {
             <div className="flex flex-col gap-4">
               {(node.risk?.length ?? 0) > 0 && (
                 <div className="rounded-lg border border-[var(--color-warn)] bg-[var(--color-bg)] p-3">
-                  <div className="mb-1 text-xs font-medium text-[var(--color-warn)]">⚠ SecOps warnings</div>
+                  <div className="mb-1 text-xs font-medium text-[var(--color-warn)]">⚠ {t('topo.secWarnings')}</div>
                   <div className="flex flex-wrap gap-1.5">
                     {node.risk!.map((r) => (
                       <span key={r} className="mono rounded bg-[var(--color-warn)] px-1.5 py-0.5 text-[10px] text-black">{r}</span>
@@ -353,7 +355,7 @@ function ObjectDrawer({ node, namespace, onClose }: {
                   </div>
                 ))}
                 {(node.info?.length ?? 0) === 0 && (
-                  <span className="text-xs text-[var(--color-ink-faint)]">No extra detail for this kind.</span>
+                  <span className="text-xs text-[var(--color-ink-faint)]">{t('topo.noDetail')}</span>
                 )}
               </div>
             </div>
@@ -362,7 +364,7 @@ function ObjectDrawer({ node, namespace, onClose }: {
           {tab === 'events' && (
             busy && !events ? <Spinner /> :
             (events?.length ?? 0) === 0 ? (
-              <div className="text-xs text-[var(--color-ink-faint)]">No recent events for this object.</div>
+              <div className="text-xs text-[var(--color-ink-faint)]">{t('topo.noEvents')}</div>
             ) : (
               <div className="flex flex-col gap-2">
                 {events!.map((e, i) => (

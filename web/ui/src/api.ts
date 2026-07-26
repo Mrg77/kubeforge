@@ -158,6 +158,13 @@ export interface FinReport {
   totalMemUsedGB: number
   metricsAvailable: boolean
   prices: { PerCPUHour: number; PerGBHour: number }
+  provider: {
+    id: string
+    label: string
+    local: boolean
+    region?: string
+    instanceType?: string
+  }
 }
 
 export interface Snapshot {

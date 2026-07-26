@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, type Topology as Topo } from '../api'
 import { Card, Spinner, ErrorNote } from '../lib'
+import { useT } from '../i18n'
 import { Layered } from './topo/Layered'
 import { ByNamespace } from './topo/ByNamespace'
 import { DependencyGraph } from './topo/DependencyGraph'
@@ -13,15 +14,16 @@ import { ByNode } from './topo/ByNode'
 // compare them on a real cluster and keep the winners.
 type Lens = 'layered' | 'namespace' | 'graph' | 'node' | 'heatmap'
 
-const LENSES: { id: Lens; label: string }[] = [
-  { id: 'layered', label: 'Resource stack' },
-  { id: 'namespace', label: 'Namespaces' },
-  { id: 'graph', label: 'Workload graph' },
-  { id: 'node', label: 'By node' },
-  { id: 'heatmap', label: 'Heatmap' },
+const LENSES: { id: Lens; key: string }[] = [
+  { id: 'layered', key: 'topo.lens.layered' },
+  { id: 'namespace', key: 'topo.lens.namespace' },
+  { id: 'graph', key: 'topo.lens.graph' },
+  { id: 'node', key: 'topo.lens.node' },
+  { id: 'heatmap', key: 'topo.lens.heatmap' },
 ]
 
 export function Topology() {
+  const { t } = useT()
   const [topo, setTopo] = useState<Topo | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [lens, setLensState] = useState<Lens>(() => {
@@ -60,13 +62,13 @@ export function Topology() {
                   : 'text-[var(--color-ink-dim)] hover:text-[var(--color-ink)]')
               }
             >
-              {l.label}
+              {t(l.key)}
             </button>
           ))}
         </div>
         <div className="ml-auto text-xs text-[var(--color-ink-faint)]">
-          {topo.nodes.length} node{topo.nodes.length > 1 ? 's' : ''} · {totalPods} pods
-          {unhealthy > 0 && <span className="text-[var(--color-crit)]"> · {unhealthy} unhealthy</span>}
+          {t(topo.nodes.length > 1 ? 'topo.nodes' : 'topo.node', { n: topo.nodes.length })} · {t('topo.pods', { n: totalPods })}
+          {unhealthy > 0 && <span className="text-[var(--color-crit)]"> · {t('topo.unhealthy', { n: unhealthy })}</span>}
         </div>
       </div>
 

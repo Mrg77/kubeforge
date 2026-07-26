@@ -2,27 +2,25 @@ import { useEffect, useMemo, useState } from 'react'
 import { Treemap, ResponsiveContainer } from 'recharts'
 import { api, type FinReport, type WorkloadCost, type PodCost, type NamespaceCost } from '../api'
 import { Card, Spinner, ErrorNote, cn } from '../lib'
+import { useT } from '../i18n'
 
 // FinOps — a real cost dashboard: efficiency gauge, spend/waste KPIs, a namespace
 // cost treemap, top wasters, and a filterable, sortable, workload-grouped table.
-// Prices are editable (with cloud presets) and recompute everything live.
+// Pricing auto-defaults to the detected cloud provider; you can still override it.
 
-const PRESETS: Record<string, { cpuHour: number; gbHour: number }> = {
-  Default: { cpuHour: 0.031, gbHour: 0.004 },
-  AWS: { cpuHour: 0.0416, gbHour: 0.0046 }, // ~m5 on-demand
-  GCP: { cpuHour: 0.0334, gbHour: 0.0045 }, // ~n2 on-demand
-  Azure: { cpuHour: 0.04, gbHour: 0.005 },
-}
+// null override = use the provider-detected defaults the backend applies.
+type PriceOverride = { cpuHour: number; gbHour: number } | null
 
 export function FinOps() {
+  const { t } = useT()
   const [rep, setRep] = useState<FinReport | null>(null)
   const [err, setErr] = useState<string | null>(null)
-  const [prices, setPrices] = useState(PRESETS.Default)
+  const [override, setOverride] = useState<PriceOverride>(null)
 
   useEffect(() => {
     setRep(null)
-    api.finops(prices).then(setRep).catch((e) => setErr(String(e.message ?? e)))
-  }, [prices])
+    api.finops(override ?? undefined).then(setRep).catch((e) => setErr(String(e.message ?? e)))
+  }, [override])
 
   if (err) return <ErrorNote message={err} />
   if (!rep) return <Spinner />
@@ -34,41 +32,39 @@ export function FinOps() {
     <div className="flex flex-col gap-5">
       {!rep.metricsAvailable && (
         <div className="rounded-lg border border-[var(--color-warn)] bg-[var(--color-warn)]/10 px-4 py-3 text-sm text-[var(--color-warn)]">
-          metrics-server isn't installed, so real usage is unknown. Costs reflect what pods{' '}
-          <em>reserve</em>, but the reserved-vs-used waste gap can't be computed.
+          {t('fin.noMetrics')}
         </div>
       )}
 
       {/* KPI row + efficiency gauge */}
       <div className="grid gap-4 lg:grid-cols-[1fr_1fr_1fr_auto]">
-        <Kpi label="Reserved / mo" value={`$${round0(rep.totalMonthly)}`} sub="estimated" />
+        <Kpi label={t('fin.reservedMo')} value={`$${round0(rep.totalMonthly)}`} sub={t('fin.estimated')} />
         <Kpi
-          label="Wasted / mo"
+          label={t('fin.wastedMo')}
           value={`$${round0(rep.wastedMonthly)}`}
-          sub={`${Math.round(wasteRatio * 100)}% of reserved`}
+          sub={t('fin.ofReserved', { n: Math.round(wasteRatio * 100) })}
           tone={wasteRatio > 0.5 ? 'crit' : wasteRatio > 0.25 ? 'warn' : 'ok'}
         />
         <Kpi
-          label="Workloads over-provisioned"
+          label={t('fin.overProvisioned')}
           value={String(rep.workloads.filter((w) => w.level === 'high').length)}
-          sub="high waste"
+          sub={t('fin.highWaste')}
           tone="warn"
         />
         {rep.metricsAvailable && <EfficiencyGauge ratio={cpuEff} />}
       </div>
 
-      <PriceEditor prices={prices} onChange={setPrices} />
+      <PriceEditor rep={rep} override={override} onChange={setOverride} />
 
       <div className="grid gap-5 lg:grid-cols-2">
         {rep.namespaces.length > 0 && rep.totalMonthly > 0 && (
           <Card className="p-5">
-            <SectionTitle title="Cost map — spend by namespace"
-              sub="Size = $/mo reserved · color = share wasted" />
+            <SectionTitle title={t('fin.costMap')} sub={t('fin.costMapSub')} />
             <CostTreemap namespaces={rep.namespaces} />
           </Card>
         )}
         <Card className="p-5">
-          <SectionTitle title="Top wasters" sub="Workloads leaking the most, right-size these first" />
+          <SectionTitle title={t('fin.topWasters')} sub={t('fin.topWastersSub')} />
           <TopWasters workloads={rep.workloads} />
         </Card>
       </div>
@@ -95,6 +91,7 @@ function Kpi({ label, value, sub, tone }: {
 
 // EfficiencyGauge is a radial arc: how much of reserved CPU is actually used.
 function EfficiencyGauge({ ratio }: { ratio: number }) {
+  const { t } = useT()
   const pct = Math.round(ratio * 100)
   const R = 42, C = 2 * Math.PI * R
   const dash = Math.min(ratio, 1) * C
@@ -107,52 +104,60 @@ function EfficiencyGauge({ ratio }: { ratio: number }) {
           strokeDasharray={`${dash} ${C}`} strokeLinecap="round"
           transform="rotate(-90 52 52)" />
         <text x={52} y={50} textAnchor="middle" fontSize={22} fontWeight={700} fill="var(--color-ink)">{pct}%</text>
-        <text x={52} y={66} textAnchor="middle" fontSize={9} fill="var(--color-ink-faint)">CPU used</text>
+        <text x={52} y={66} textAnchor="middle" fontSize={9} fill="var(--color-ink-faint)">{t('fin.cpuUsed')}</text>
       </svg>
       <div className="text-xs text-[var(--color-ink-dim)]">
-        <div className="font-medium text-[var(--color-ink)]">Cluster efficiency</div>
-        <div className="mt-1">of reserved CPU is actually used.</div>
-        <div className="mt-1 text-[var(--color-ink-faint)]">The rest is capacity you pay for and don't use.</div>
+        <div className="font-medium text-[var(--color-ink)]">{t('fin.efficiency')}</div>
+        <div className="mt-1">{t('fin.effExplain')}</div>
+        <div className="mt-1 text-[var(--color-ink-faint)]">{t('fin.effRest')}</div>
       </div>
     </Card>
   )
 }
 
-// ---- Price editor ----------------------------------------------------------
+// ---- Price editor: auto (detected provider) + manual override --------------
 
-function PriceEditor({ prices, onChange }: {
-  prices: { cpuHour: number; gbHour: number }
-  onChange: (p: { cpuHour: number; gbHour: number }) => void
+function PriceEditor({ rep, override, onChange }: {
+  rep: FinReport
+  override: PriceOverride
+  onChange: (p: PriceOverride) => void
 }) {
-  const activePreset = Object.entries(PRESETS).find(
-    ([, p]) => p.cpuHour === prices.cpuHour && p.gbHour === prices.gbHour,
-  )?.[0]
+  const { t } = useT()
+  // effective prices shown in the inputs (override, else the backend's detected)
+  const eff = override ?? { cpuHour: rep.prices.PerCPUHour, gbHour: rep.prices.PerGBHour }
+  const isAuto = override === null
   return (
-    <Card className="flex flex-wrap items-center gap-4 p-4">
-      <span className="text-xs font-medium text-[var(--color-ink-dim)]">Pricing</span>
+    <Card className="flex flex-wrap items-center gap-x-4 gap-y-2 p-4">
+      <span className="text-xs font-medium text-[var(--color-ink-dim)]">{t('fin.pricing')}</span>
+
+      {/* detected provider badge */}
+      <span className="rounded-md px-2 py-0.5 text-[11px]"
+        style={{ color: 'var(--color-accent)', background: 'var(--color-accent-soft)' }}>
+        {t('fin.detected')}: {rep.provider.label}
+      </span>
+      {rep.provider.local && (
+        <span className="text-[11px] text-[var(--color-warn)]">⚠ {t('fin.localEstimate')}</span>
+      )}
+
       <label className="flex items-center gap-1.5 text-xs">
         <span className="text-[var(--color-ink-faint)]">$/CPU·h</span>
-        <input type="number" step="0.001" value={prices.cpuHour}
-          onChange={(e) => onChange({ ...prices, cpuHour: +e.target.value })}
+        <input type="number" step="0.001" value={eff.cpuHour}
+          onChange={(e) => onChange({ ...eff, cpuHour: +e.target.value })}
           className="w-20 rounded-md bg-[var(--color-surface-2)] px-2 py-1 mono outline-none" />
       </label>
       <label className="flex items-center gap-1.5 text-xs">
         <span className="text-[var(--color-ink-faint)]">$/GB·h</span>
-        <input type="number" step="0.001" value={prices.gbHour}
-          onChange={(e) => onChange({ ...prices, gbHour: +e.target.value })}
+        <input type="number" step="0.001" value={eff.gbHour}
+          onChange={(e) => onChange({ ...eff, gbHour: +e.target.value })}
           className="w-20 rounded-md bg-[var(--color-surface-2)] px-2 py-1 mono outline-none" />
       </label>
-      <div className="ml-auto flex items-center gap-1">
-        {Object.keys(PRESETS).map((k) => (
-          <button key={k} onClick={() => onChange(PRESETS[k])}
-            className={cn('rounded-md px-2.5 py-1 text-xs',
-              activePreset === k
-                ? 'bg-[var(--color-accent)] text-black font-medium'
-                : 'text-[var(--color-ink-dim)] hover:bg-[var(--color-surface-2)]')}>
-            {k}
-          </button>
-        ))}
-      </div>
+
+      <button onClick={() => onChange(null)} disabled={isAuto}
+        className={cn('ml-auto rounded-md px-2.5 py-1 text-xs',
+          isAuto ? 'bg-[var(--color-accent)] text-black font-medium'
+            : 'text-[var(--color-ink-dim)] hover:bg-[var(--color-surface-2)]')}>
+        {t('fin.auto')}
+      </button>
     </Card>
   )
 }
@@ -160,9 +165,10 @@ function PriceEditor({ prices, onChange }: {
 // ---- Top wasters -----------------------------------------------------------
 
 function TopWasters({ workloads }: { workloads: WorkloadCost[] }) {
+  const { t } = useT()
   const top = workloads.filter((w) => w.wastedMonthly > 0).slice(0, 6)
   if (top.length === 0)
-    return <div className="text-sm text-[var(--color-ink-dim)]">No measurable waste — nicely sized.</div>
+    return <div className="text-sm text-[var(--color-ink-dim)]">{t('fin.noWaste')}</div>
   const max = top[0].wastedMonthly
   return (
     <div className="mt-3 flex flex-col gap-2.5">
@@ -192,6 +198,7 @@ function TopWasters({ workloads }: { workloads: WorkloadCost[] }) {
 type SortKey = 'monthlyCost' | 'wastedMonthly' | 'cpuUsage' | 'name'
 
 function WorkloadTable({ rep }: { rep: FinReport }) {
+  const { t } = useT()
   const [ns, setNs] = useState('all')
   const [q, setQ] = useState('')
   const [sort, setSort] = useState<SortKey>('wastedMonthly')
@@ -226,13 +233,13 @@ function WorkloadTable({ rep }: { rep: FinReport }) {
   return (
     <Card className="p-5">
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <SectionTitle title="Cost by workload" sub={`${rows.length} workloads · click to expand replicas`} />
+        <SectionTitle title={t('fin.costByWorkload')} sub={t('fin.costByWorkloadSub', { n: rows.length })} />
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <select value={ns} onChange={(e) => setNs(e.target.value)}
             className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2.5 py-1 text-xs mono outline-none">
-            {namespaces.map((n) => <option key={n} value={n}>{n === 'all' ? 'all namespaces' : n}</option>)}
+            {namespaces.map((n) => <option key={n} value={n}>{n === 'all' ? t('fin.allNamespaces') : n}</option>)}
           </select>
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="search…"
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('fin.search')}
             className="w-40 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2.5 py-1 text-xs outline-none" />
         </div>
       </div>
@@ -241,13 +248,13 @@ function WorkloadTable({ rep }: { rep: FinReport }) {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-[var(--color-border)] text-left text-[11px] uppercase tracking-wide text-[var(--color-ink-faint)]">
-              <Th label="Workload" k="name" sort={sort} setSort={setSort} />
-              <th className="py-2 pr-4">Pods</th>
-              <Th label="CPU used/req" k="cpuUsage" sort={sort} setSort={setSort} />
-              <th className="py-2 pr-4">Mem used/req</th>
-              <th className="py-2 pr-4">Waste</th>
-              <Th label="$/mo cost" k="monthlyCost" sort={sort} setSort={setSort} align="right" />
-              <Th label="$/mo wasted" k="wastedMonthly" sort={sort} setSort={setSort} align="right" />
+              <Th label={t('fin.col.workload')} k="name" sort={sort} setSort={setSort} />
+              <th className="py-2 pr-4">{t('fin.col.pods')}</th>
+              <Th label={t('fin.col.cpu')} k="cpuUsage" sort={sort} setSort={setSort} />
+              <th className="py-2 pr-4">{t('fin.col.mem')}</th>
+              <th className="py-2 pr-4">{t('fin.col.waste')}</th>
+              <Th label={t('fin.col.cost')} k="monthlyCost" sort={sort} setSort={setSort} align="right" />
+              <Th label={t('fin.col.wasted')} k="wastedMonthly" sort={sort} setSort={setSort} align="right" />
             </tr>
           </thead>
           <tbody>
@@ -306,14 +313,15 @@ function Th({ label, k, sort, setSort, align }: {
 }
 
 function WasteBadge({ level }: { level: string }) {
-  const map: Record<string, { c: string; t: string }> = {
-    ok: { c: 'var(--color-ok)', t: 'ok' },
-    moderate: { c: 'var(--color-warn)', t: 'moderate' },
-    high: { c: 'var(--color-crit)', t: 'high' },
-    unbounded: { c: 'var(--color-ink-faint)', t: 'no limits' },
+  const { t } = useT()
+  const map: Record<string, { c: string; k: string }> = {
+    ok: { c: 'var(--color-ok)', k: 'waste.ok' },
+    moderate: { c: 'var(--color-warn)', k: 'waste.moderate' },
+    high: { c: 'var(--color-crit)', k: 'waste.high' },
+    unbounded: { c: 'var(--color-ink-faint)', k: 'waste.unbounded' },
   }
   const m = map[level] ?? map.ok
-  return <span className="rounded px-1.5 py-0.5 text-[10px]" style={{ color: m.c, background: `color-mix(in srgb, ${m.c} 15%, transparent)` }}>{m.t}</span>
+  return <span className="rounded px-1.5 py-0.5 text-[10px]" style={{ color: m.c, background: `color-mix(in srgb, ${m.c} 15%, transparent)` }}>{t(m.k)}</span>
 }
 
 // ---- shared bits + treemap (kept from before) ------------------------------
@@ -351,11 +359,14 @@ function wasteColor(ratio: number): string {
 function TreemapCell(props: any) {
   const { x, y, width, height, name, cost, waste } = props
   if (width < 30 || height < 20) return null
+  // Recharts renders a root/parent cell without our custom fields — skip its
+  // label so a missing cost doesn't render as "$NaN/mo".
+  const isLeaf = typeof cost === 'number' && !Number.isNaN(cost)
   return (
     <g>
       <rect x={x} y={y} width={width} height={height} rx={4}
         fill={wasteColor(waste ?? 0)} stroke="var(--color-bg)" strokeWidth={2} />
-      {width > 60 && height > 34 && (
+      {isLeaf && width > 60 && height > 34 && (
         <>
           <text x={x + 8} y={y + 18} fill="#fff" fontSize={12} fontWeight={600}>{name}</text>
           <text x={x + 8} y={y + 33} fill="#ffffffcc" fontSize={10}>${round0(cost)}/mo</text>

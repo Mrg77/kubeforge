@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Activity, Boxes, Database, DollarSign, Network, ShieldCheck, Sparkles, Server, RefreshCw } from 'lucide-react'
 import { api, type ClusterInfo } from './api'
 import { cn, Spinner } from './lib'
+import { useT, type Locale } from './i18n'
 import { Overview } from './views/Overview'
 import { Resources } from './views/Resources'
 import { SecOps } from './views/SecOps'
@@ -13,14 +14,14 @@ import { AIButton, AIDrawer } from './AIDrawer'
 
 type Tab = 'overview' | 'topology' | 'resources' | 'storage' | 'finops' | 'secops' | 'insights'
 
-const NAV: { id: Tab; label: string; icon: typeof Activity; ready: boolean }[] = [
-  { id: 'overview', label: 'Overview', icon: Activity, ready: true },
-  { id: 'topology', label: 'Topology', icon: Network, ready: true },
-  { id: 'resources', label: 'Resources', icon: Boxes, ready: true },
-  { id: 'storage', label: 'Storage', icon: Database, ready: true },
-  { id: 'finops', label: 'FinOps', icon: DollarSign, ready: true },
-  { id: 'secops', label: 'SecOps', icon: ShieldCheck, ready: true },
-  { id: 'insights', label: 'Insights', icon: Sparkles, ready: true },
+const NAV: { id: Tab; key: string; icon: typeof Activity; ready: boolean }[] = [
+  { id: 'overview', key: 'nav.overview', icon: Activity, ready: true },
+  { id: 'topology', key: 'nav.topology', icon: Network, ready: true },
+  { id: 'resources', key: 'nav.resources', icon: Boxes, ready: true },
+  { id: 'storage', key: 'nav.storage', icon: Database, ready: true },
+  { id: 'finops', key: 'nav.finops', icon: DollarSign, ready: true },
+  { id: 'secops', key: 'nav.secops', icon: ShieldCheck, ready: true },
+  { id: 'insights', key: 'nav.insights', icon: Sparkles, ready: true },
 ]
 
 function initialTab(): Tab {
@@ -45,6 +46,8 @@ export default function App() {
   useEffect(() => {
     api.cluster().then(setCluster).catch((e) => setErr(String(e.message ?? e)))
   }, [])
+
+  const { t, locale, setLocale } = useT()
 
   return (
     <div className="flex h-full">
@@ -72,13 +75,13 @@ export default function App() {
               style={tab === n.id ? { color: 'var(--color-accent)' } : undefined}
             >
               <n.icon size={16} />
-              {n.label}
-              {!n.ready && <span className="ml-auto text-[10px] uppercase">soon</span>}
+              {t(n.key)}
             </button>
           ))}
         </nav>
-        <div className="mt-auto px-5 py-4 text-[11px] text-[var(--color-ink-faint)]">
-          local-first · nothing exposed
+        <div className="mt-auto flex flex-col gap-3 px-5 py-4">
+          <LangToggle locale={locale} setLocale={setLocale} />
+          <span className="text-[11px] text-[var(--color-ink-faint)]">{t('chrome.localFirst')}</span>
         </div>
       </aside>
 
@@ -101,7 +104,22 @@ export default function App() {
   )
 }
 
+function LangToggle({ locale, setLocale }: { locale: Locale; setLocale: (l: Locale) => void }) {
+  return (
+    <div className="inline-flex w-fit rounded-md border border-[var(--color-border)] p-0.5 text-[11px]">
+      {(['en', 'fr'] as Locale[]).map((l) => (
+        <button key={l} onClick={() => setLocale(l)}
+          className={cn('rounded px-2 py-0.5 uppercase',
+            locale === l ? 'bg-[var(--color-accent)] text-black font-medium' : 'text-[var(--color-ink-dim)] hover:text-[var(--color-ink)]')}>
+          {l}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 function ClusterHeader({ cluster, error, onAskAI }: { cluster: ClusterInfo | null; error: string | null; onAskAI: () => void }) {
+  const { t } = useT()
   const reachable = cluster?.reachable
   const dot = error || cluster?.error ? 'var(--color-crit)' : reachable ? 'var(--color-ok)' : 'var(--color-warn)'
   return (
@@ -114,10 +132,10 @@ function ClusterHeader({ cluster, error, onAskAI }: { cluster: ClusterInfo | nul
         <span className="h-2 w-2 rounded-full" style={{ background: dot }} />
         <span className="text-xs text-[var(--color-ink-dim)]">
           {error || cluster?.error
-            ? 'unreachable'
+            ? t('chrome.unreachable')
             : reachable
               ? `Kubernetes ${cluster?.version}`
-              : 'connecting…'}
+              : t('chrome.connecting')}
         </span>
       </div>
       {cluster?.server && (
@@ -129,7 +147,7 @@ function ClusterHeader({ cluster, error, onAskAI }: { cluster: ClusterInfo | nul
           onClick={() => location.reload()}
           className="flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-2.5 py-1 text-xs text-[var(--color-ink-dim)] hover:bg-[var(--color-surface-2)]"
         >
-          <RefreshCw size={12} /> refresh
+          <RefreshCw size={12} /> {t('chrome.refresh')}
         </button>
       </div>
     </header>

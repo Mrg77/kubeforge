@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, type Pod, type Node, type FinReport, type SecReport, type StorageReport } from '../api'
 import { Card, Stat, StatusBadge, Spinner, ErrorNote } from '../lib'
+import { useT } from '../i18n'
 
 // Overview: the "how is my cluster doing?" landing hub. A pillar summary row up
 // top gives the headline for each area (cost, security, storage) and links into
@@ -12,6 +13,7 @@ export function Overview() {
   const [sec, setSec] = useState<SecReport | null>(null)
   const [sto, setSto] = useState<StorageReport | null>(null)
   const [err, setErr] = useState<string | null>(null)
+  const { t } = useT()
 
   useEffect(() => {
     api.pods().then(setPods).catch((e) => setErr(String(e.message ?? e)))
@@ -32,35 +34,35 @@ export function Overview() {
     <div className="flex flex-col gap-6">
       {/* Pillar hub — headline per area, click to dive in */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <PillarCard tab="finops" title="FinOps" accent="var(--color-warn)"
+        <PillarCard tab="finops" title={t('ov.finops')} accent="var(--color-warn)"
           value={fin ? `$${Math.round(fin.wastedMonthly)}/mo` : '…'}
-          sub={fin ? 'estimated waste' : 'loading'} />
-        <PillarCard tab="secops" title="SecOps" accent="var(--color-crit)"
+          sub={fin ? t('ov.finops.sub') : t('common.loading')} />
+        <PillarCard tab="secops" title={t('ov.secops')} accent="var(--color-crit)"
           value={sec ? `${sec.counts.critical + sec.counts.high}` : '…'}
-          sub={sec ? 'critical + high findings' : 'loading'} />
-        <PillarCard tab="storage" title="Storage" accent="var(--color-info)"
+          sub={sec ? t('ov.secops.sub') : t('common.loading')} />
+        <PillarCard tab="storage" title={t('ov.storage')} accent="var(--color-info)"
           value={sto ? `${sto.totalCapacityGB} GB` : '…'}
-          sub={sto ? `${sto.orphanedCapacityGB} GB orphaned` : 'loading'} />
-        <PillarCard tab="topology" title="Topology" accent="var(--color-accent)"
-          value={nodes ? `${nodes.length} nodes` : '…'}
-          sub="explore the resource stack" />
+          sub={sto ? t('ov.storage.sub', { n: sto.orphanedCapacityGB }) : t('common.loading')} />
+        <PillarCard tab="topology" title={t('ov.topology')} accent="var(--color-accent)"
+          value={nodes ? t('topo.nodes', { n: nodes.length }) : '…'}
+          sub={t('ov.topology.sub')} />
       </div>
 
       {/* Health stats row */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Stat label="Pods" value={pods.length} hint={`${pods.length - unhealthy.length} healthy`} />
+        <Stat label={t('ov.pods')} value={pods.length} hint={t('ov.healthy', { n: pods.length - unhealthy.length })} />
         <Stat
-          label="Unhealthy"
+          label={t('ov.unhealthy')}
           value={unhealthy.length}
           tone={unhealthy.length ? 'crit' : 'ok'}
-          hint={unhealthy.length ? 'need attention' : 'all good'}
+          hint={unhealthy.length ? t('ov.needAttention') : t('ov.allGood')}
         />
-        <Stat label="Nodes" value={nodes ? `${nodesReady}/${nodes.length}` : '…'} hint="ready" />
+        <Stat label={t('ov.nodes')} value={nodes ? `${nodesReady}/${nodes.length}` : '…'} hint={t('ov.ready')} />
         <Stat
-          label="Restarts"
+          label={t('ov.restarts')}
           value={pods.reduce((s, p) => s + p.restarts, 0)}
           tone={pods.some((p) => p.restarts > 5) ? 'warn' : 'ink'}
-          hint="across all pods"
+          hint={t('ov.acrossPods')}
         />
       </div>
 
@@ -68,7 +70,7 @@ export function Overview() {
       {unhealthy.length > 0 && (
         <Card>
           <div className="border-b border-[var(--color-border)] px-5 py-3 text-sm font-medium">
-            Needs attention
+            {t('ov.needsAttention')}
           </div>
           <PodTable pods={unhealthy} />
         </Card>
@@ -77,7 +79,7 @@ export function Overview() {
       {/* All pods */}
       <Card>
         <div className="border-b border-[var(--color-border)] px-5 py-3 text-sm font-medium">
-          All pods <span className="text-[var(--color-ink-faint)]">({pods.length})</span>
+          {t('ov.allPods')} <span className="text-[var(--color-ink-faint)]">({pods.length})</span>
         </div>
         <PodTable pods={pods} />
       </Card>
@@ -110,17 +112,18 @@ function PillarCard({ tab, title, value, sub, accent }: {
 }
 
 function PodTable({ pods }: { pods: Pod[] }) {
+  const { t } = useT()
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
           <tr className="text-left text-xs uppercase tracking-wide text-[var(--color-ink-faint)]">
-            <th className="px-5 py-2 font-medium">Namespace</th>
-            <th className="px-5 py-2 font-medium">Pod</th>
-            <th className="px-5 py-2 font-medium">Status</th>
-            <th className="px-5 py-2 font-medium">Ready</th>
-            <th className="px-5 py-2 font-medium">Restarts</th>
-            <th className="px-5 py-2 font-medium">Age</th>
+            <th className="px-5 py-2 font-medium">{t('col.namespace')}</th>
+            <th className="px-5 py-2 font-medium">{t('col.pod')}</th>
+            <th className="px-5 py-2 font-medium">{t('col.status')}</th>
+            <th className="px-5 py-2 font-medium">{t('col.ready')}</th>
+            <th className="px-5 py-2 font-medium">{t('col.restarts')}</th>
+            <th className="px-5 py-2 font-medium">{t('col.age')}</th>
           </tr>
         </thead>
         <tbody>

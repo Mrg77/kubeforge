@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
 import { Sparkles, X, TrendingUp, Settings } from 'lucide-react'
 import { api, type AIConfig } from './api'
+import { useT } from './i18n'
 
 // AIDrawer is the always-reachable AI surface: a button lives in the header on
 // every view, and this slides in from the right. It keeps the AI opt-in and
 // out of the way — nothing runs until you click — while making it obvious the
 // capability is there, instead of hiding it inside one tab.
 export function AIButton({ onOpen }: { onOpen: () => void }) {
+  const { t } = useT()
   const [configured, setConfigured] = useState<boolean | null>(null)
   useEffect(() => {
     api.aiConfig().then((c) => setConfigured(c.configured)).catch(() => setConfigured(false))
@@ -20,12 +22,11 @@ export function AIButton({ onOpen }: { onOpen: () => void }) {
         color: 'var(--color-accent)',
         background: 'var(--color-accent-soft)',
       }}
-      title={configured ? 'Ask AI about this cluster' : 'Set up AI (bring your own key)'}
     >
       <Sparkles size={13} />
-      Ask AI
+      {t('chrome.askAI')}
       {configured === false && (
-        <span className="rounded-full bg-[var(--color-warn)] px-1 text-[9px] text-black">setup</span>
+        <span className="rounded-full bg-[var(--color-warn)] px-1 text-[9px] text-black">{t('chrome.setup')}</span>
       )}
     </button>
   )

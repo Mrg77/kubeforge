@@ -28,6 +28,24 @@ type Prices struct {
 // DefaultPrices are conservative on-demand-ish averages.
 var DefaultPrices = Prices{PerCPUHour: 0.031, PerGBHour: 0.004}
 
+// providerPrices are rough on-demand per-core / per-GB averages by cloud, keyed
+// by the cluster.CloudProvider ID. They're for RELATIVE ranking, not billing.
+var providerPrices = map[string]Prices{
+	"aws":          {PerCPUHour: 0.0416, PerGBHour: 0.0046}, // ~m5 on-demand
+	"gcp":          {PerCPUHour: 0.0334, PerGBHour: 0.0045}, // ~n2 on-demand
+	"azure":        {PerCPUHour: 0.0400, PerGBHour: 0.0050},
+	"digitalocean": {PerCPUHour: 0.0300, PerGBHour: 0.0040},
+}
+
+// PricesFor returns the best default prices for a detected provider id. Unknown
+// or local clusters get the generic DefaultPrices (an illustrative estimate).
+func PricesFor(providerID string) Prices {
+	if p, ok := providerPrices[providerID]; ok {
+		return p
+	}
+	return DefaultPrices
+}
+
 const hoursPerMonth = 730.0
 
 // WasteLevel classifies how over-provisioned a workload is.

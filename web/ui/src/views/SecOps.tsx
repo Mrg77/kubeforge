@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { api, type SecReport, type SecFinding } from '../api'
 import { Card, Spinner, ErrorNote, cn } from '../lib'
+import { useT } from '../i18n'
 
 // SecOps: the security-posture view. A posture score up top, then deterministic
 // findings — filterable by severity, category and free text — most-severe first,
 // each with a plain "why + fix" explanation and a jump into the Resource stack.
 export function SecOps() {
+  const { t } = useT()
   const [rep, setRep] = useState<SecReport | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [cat, setCat] = useState<string>('all')
@@ -38,10 +40,10 @@ export function SecOps() {
       <div className="grid gap-4 lg:grid-cols-[auto_1fr]">
         <ScoreGauge counts={c} scanned={rep.scanned.pods} />
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <SevCard label="Critical" value={c.critical} color="var(--color-crit)" active={sev === 'CRITICAL'} onClick={() => setSev(sev === 'CRITICAL' ? 'all' : 'CRITICAL')} />
-          <SevCard label="High" value={c.high} color="var(--color-crit)" active={sev === 'HIGH'} onClick={() => setSev(sev === 'HIGH' ? 'all' : 'HIGH')} />
-          <SevCard label="Medium" value={c.medium} color="var(--color-warn)" active={sev === 'MEDIUM'} onClick={() => setSev(sev === 'MEDIUM' ? 'all' : 'MEDIUM')} />
-          <SevCard label="Low" value={c.low} color="var(--color-info)" active={sev === 'LOW'} onClick={() => setSev(sev === 'LOW' ? 'all' : 'LOW')} />
+          <SevCard label={t('sec.critical')} value={c.critical} color="var(--color-crit)" active={sev === 'CRITICAL'} onClick={() => setSev(sev === 'CRITICAL' ? 'all' : 'CRITICAL')} />
+          <SevCard label={t('sec.high')} value={c.high} color="var(--color-crit)" active={sev === 'HIGH'} onClick={() => setSev(sev === 'HIGH' ? 'all' : 'HIGH')} />
+          <SevCard label={t('sec.medium')} value={c.medium} color="var(--color-warn)" active={sev === 'MEDIUM'} onClick={() => setSev(sev === 'MEDIUM' ? 'all' : 'MEDIUM')} />
+          <SevCard label={t('sec.low')} value={c.low} color="var(--color-info)" active={sev === 'LOW'} onClick={() => setSev(sev === 'LOW' ? 'all' : 'LOW')} />
         </div>
       </div>
 
@@ -57,22 +59,19 @@ export function SecOps() {
             {k !== 'all' && <span className="ml-1.5 text-[var(--color-ink-faint)]">{rep.findings.filter((f) => f.category === k).length}</span>}
           </button>
         ))}
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="search findings…"
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('sec.searchFindings')}
           className="ml-auto w-48 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2.5 py-1 text-xs outline-none" />
       </div>
 
       {shown.length === 0 ? (
-        <Card className="p-6 text-sm text-[var(--color-ok)]">✓ No findings match these filters.</Card>
+        <Card className="p-6 text-sm text-[var(--color-ok)]">{t('sec.noMatch')}</Card>
       ) : (
         <div className="flex flex-col gap-3">
           {shown.map((f, i) => <FindingCard key={i} f={f} />)}
         </div>
       )}
 
-      <p className="text-xs text-[var(--color-ink-faint)]">
-        Deterministic posture scan — how things are configured, not runtime threat detection.
-        A clean report means "no misconfiguration we check for", not "provably secure".
-      </p>
+      <p className="text-xs text-[var(--color-ink-faint)]">{t('sec.disclaimer')}</p>
     </div>
   )
 }
@@ -82,6 +81,7 @@ function ScoreGauge({ counts, scanned }: {
   counts: { critical: number; high: number; medium: number; low: number }
   scanned: number
 }) {
+  const { t } = useT()
   const penalty = counts.critical * 12 + counts.high * 6 + counts.medium * 2 + counts.low * 0.5
   const score = Math.max(0, Math.round(100 - penalty))
   const grade = score >= 90 ? 'A' : score >= 75 ? 'B' : score >= 60 ? 'C' : score >= 40 ? 'D' : 'F'
@@ -97,9 +97,9 @@ function ScoreGauge({ counts, scanned }: {
         <text x={58} y={74} textAnchor="middle" fontSize={13} fontWeight={700} fill={color}>{grade}</text>
       </svg>
       <div className="text-xs text-[var(--color-ink-dim)]">
-        <div className="text-sm font-medium text-[var(--color-ink)]">Posture score</div>
-        <div className="mt-1">Weighted by severity across<br />{scanned} pods scanned.</div>
-        <div className="mt-1 text-[var(--color-ink-faint)]">Fix criticals first to move the needle.</div>
+        <div className="text-sm font-medium text-[var(--color-ink)]">{t('sec.postureScore')}</div>
+        <div className="mt-1">{t('sec.postureSub', { n: scanned })}</div>
+        <div className="mt-1 text-[var(--color-ink-faint)]">{t('sec.fixFirst')}</div>
       </div>
     </Card>
   )
@@ -128,6 +128,7 @@ const SEV_COLOR: Record<string, string> = {
 }
 
 function FindingCard({ f }: { f: SecFinding }) {
+  const { t } = useT()
   const color = SEV_COLOR[f.severity] ?? 'var(--color-ink-dim)'
   // The object is "<namespace>/<name> (<Kind>)"; link into the Resource stack
   // for that namespace so you can see the offending resource in context.
@@ -144,7 +145,7 @@ function FindingCard({ f }: { f: SecFinding }) {
             {ns && (
               <a href={`?tab=topology&lens=layered&ns=${encodeURIComponent(ns)}`}
                 className="ml-auto text-[11px] text-[var(--color-accent)] hover:underline">
-                view in stack →
+                {t('sec.viewInStack')}
               </a>
             )}
           </div>
