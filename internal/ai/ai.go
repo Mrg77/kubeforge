@@ -23,13 +23,13 @@ import (
 	"time"
 )
 
-// Provider is a chat-completions backend. Anthropic and OpenAI-compatible
-// (which also covers a local Ollama server) are supported.
+// Provider is a chat-completions backend. Bring your own key for any of them.
 type Provider string
 
 const (
-	ProviderAnthropic Provider = "anthropic"
-	ProviderOpenAI    Provider = "openai" // also any OpenAI-compatible endpoint (Ollama, etc.)
+	ProviderAnthropic Provider = "anthropic" // Claude
+	ProviderOpenAI    Provider = "openai"    // ChatGPT (and any OpenAI-compatible endpoint)
+	ProviderGoogle    Provider = "google"    // Gemini
 )
 
 // Config is the user-supplied AI configuration. Empty APIKey means AI is off.
@@ -67,9 +67,18 @@ func (c *Client) Complete(ctx context.Context, system, user string) (string, err
 	switch c.cfg.Provider {
 	case ProviderAnthropic:
 		return c.anthropic(ctx, system, user)
+	case ProviderGoogle:
+		return c.google(ctx, system, user)
 	default:
 		return c.openAI(ctx, system, user)
 	}
+}
+
+// Ping makes a tiny real call to verify the key/model/endpoint work, so the UI
+// can say "connected" or show the exact error before the user relies on it.
+func (c *Client) Ping(ctx context.Context) error {
+	_, err := c.Complete(ctx, "You are a health check.", "Reply with the single word: ok")
+	return err
 }
 
 func (c *Client) anthropic(ctx context.Context, system, user string) (string, error) {
@@ -138,6 +147,43 @@ func (c *Client) openAI(ctx context.Context, system, user string) (string, error
 		return "", fmt.Errorf("openai: empty response")
 	}
 	return out.Choices[0].Message.Content, nil
+}
+
+// google calls the Gemini generateContent API. Its shape differs from the other
+// two: the system prompt goes in systemInstruction, the key is a query param,
+// and the model name is in the URL path.
+func (c *Client) google(ctx context.Context, system, user string) (string, error) {
+	body, _ := json.Marshal(map[string]any{
+		"systemInstruction": map[string]any{"parts": []map[string]string{{"text": system}}},
+		"contents":          []map[string]any{{"role": "user", "parts": []map[string]string{{"text": user}}}},
+	})
+	base := c.baseURL("https://generativelanguage.googleapis.com")
+	url := fmt.Sprintf("%s/v1beta/models/%s:generateContent?key=%s", base, c.cfg.Model, c.cfg.APIKey)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	req.Header.Set("content-type", "application/json")
+
+	var out struct {
+		Candidates []struct {
+			Content struct {
+				Parts []struct {
+					Text string `json:"text"`
+				} `json:"parts"`
+			} `json:"content"`
+		} `json:"candidates"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := c.do(req, &out); err != nil {
+		return "", err
+	}
+	if out.Error != nil {
+		return "", fmt.Errorf("google: %s", out.Error.Message)
+	}
+	if len(out.Candidates) == 0 || len(out.Candidates[0].Content.Parts) == 0 {
+		return "", fmt.Errorf("google: empty response")
+	}
+	return out.Candidates[0].Content.Parts[0].Text, nil
 }
 
 func (c *Client) baseURL(def string) string {

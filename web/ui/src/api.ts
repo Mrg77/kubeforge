@@ -184,9 +184,10 @@ export interface Snapshot {
   cpuUsed: number
 }
 
+export type AIProvider = 'anthropic' | 'openai' | 'google'
 export interface AIConfig {
   configured: boolean
-  provider: 'anthropic' | 'openai'
+  provider: AIProvider
   model: string
   baseUrl?: string
 }
@@ -266,6 +267,8 @@ export const api = {
   aiConfig: () => get<AIConfig>('/api/ai/config'),
   aiSaveConfig: (c: { provider: string; model: string; apiKey: string; baseUrl?: string }) =>
     post<{ saved?: boolean; error?: string }>('/api/ai/config', c),
+  aiTest: (c: { provider: string; model: string; apiKey: string; baseUrl?: string }) =>
+    post<{ ok: boolean; error?: string }>('/api/ai/test', c),
   aiSummary: () => post<{ text?: string; error?: string }>('/api/ai/summary'),
   aiTrends: () => post<{ text?: string; error?: string }>('/api/ai/trends'),
 }

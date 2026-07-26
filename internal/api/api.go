@@ -62,6 +62,7 @@ func (s *Server) Routes() *http.ServeMux {
 	// AI (opt-in, bring-your-own-key): config + analysis endpoints.
 	mux.HandleFunc("GET /api/ai/config", s.handleAIConfig)
 	mux.HandleFunc("POST /api/ai/config", s.handleAISaveConfig)
+	mux.HandleFunc("POST /api/ai/test", s.handleAITest)
 	mux.HandleFunc("POST /api/ai/summary", s.handleAISummary)
 	mux.HandleFunc("POST /api/ai/trends", s.handleAITrends)
 	return mux
@@ -96,6 +97,40 @@ func (s *Server) handleAISaveConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"saved": true})
+}
+
+// handleAITest verifies a provider/model/key with one tiny real call, WITHOUT
+// saving it — so the settings form can say "connected" or show the exact error
+// (invalid key, unknown model…) before the user commits the config.
+func (s *Server) handleAITest(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	var in struct {
+		Provider string `json:"provider"`
+		Model    string `json:"model"`
+		BaseURL  string `json:"baseUrl"`
+		APIKey   string `json:"apiKey"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "invalid body"})
+		return
+	}
+	// If the key field is blank, fall back to the saved key (so "Test" works on
+	// an already-configured provider without retyping the secret).
+	key := in.APIKey
+	if key == "" {
+		key = ai.LoadConfig().APIKey
+	}
+	client := ai.New(ai.Config{Provider: ai.Provider(in.Provider), Model: in.Model, BaseURL: in.BaseURL, APIKey: key})
+	if !client.Configured() {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "provide a model and an API key"})
+		return
+	}
+	if err := client.Ping(ctx); err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // handleAISummary runs the deterministic scans and asks the AI for a

@@ -170,6 +170,30 @@ const EN: Record<string, string> = {
 
   // common
   'common.loading': 'loading',
+  // AI panel
+  'ai.title': 'AI analysis',
+  'ai.ready': 'ready',
+  'ai.notConfigured': 'not configured',
+  'ai.settings': 'settings',
+  'ai.blurb': 'Opt-in, bring-your-own-key. KubeForge sends the findings (counts, titles, trends) to your model — never raw cluster objects or secrets. Everything else works without it.',
+  'ai.chooseAI': 'Choose your AI',
+  'ai.model': 'Model',
+  'ai.apiKey': 'API key',
+  'ai.getKey': 'get a key →',
+  'ai.keyPlaceholderNew': 'stored locally (0600), never shown again',
+  'ai.keyPlaceholderKeep': 'leave blank to keep the saved key',
+  'ai.baseUrl': 'Base URL (optional — for an OpenAI-compatible endpoint)',
+  'ai.testConn': 'Test connection',
+  'ai.testing': 'testing…',
+  'ai.save': 'Save',
+  'ai.saving': 'saving…',
+  'ai.connected': 'Connected — the key works.',
+  'ai.summarize': 'Summarize & prioritize',
+  'ai.analyzeTrends': 'Analyze trends',
+  'ai.thinking': 'thinking…',
+  'ai.needHistory': 'needs more history',
+  'ai.priorities': 'Priorities',
+  'ai.trendAnalysis': 'Trend analysis',
 }
 
 const FR: Record<string, string> = {
@@ -326,6 +350,29 @@ const FR: Record<string, string> = {
   'sto.classes': 'Storage classes',
 
   'common.loading': 'chargement',
+  'ai.title': 'Analyse IA',
+  'ai.ready': 'prête',
+  'ai.notConfigured': 'non configurée',
+  'ai.settings': 'réglages',
+  'ai.blurb': 'Optionnel, avec votre propre clé. KubeForge envoie les findings (compteurs, titres, tendances) à votre modèle — jamais d\'objets bruts du cluster ni de secrets. Tout le reste fonctionne sans.',
+  'ai.chooseAI': 'Choisissez votre IA',
+  'ai.model': 'Modèle',
+  'ai.apiKey': 'Clé API',
+  'ai.getKey': 'obtenir une clé →',
+  'ai.keyPlaceholderNew': 'stockée localement (0600), jamais réaffichée',
+  'ai.keyPlaceholderKeep': 'laissez vide pour garder la clé enregistrée',
+  'ai.baseUrl': 'URL de base (optionnel — pour un endpoint compatible OpenAI)',
+  'ai.testConn': 'Tester la connexion',
+  'ai.testing': 'test…',
+  'ai.save': 'Enregistrer',
+  'ai.saving': 'enregistrement…',
+  'ai.connected': 'Connecté — la clé fonctionne.',
+  'ai.summarize': 'Résumer & prioriser',
+  'ai.analyzeTrends': 'Analyser les tendances',
+  'ai.thinking': 'réflexion…',
+  'ai.needHistory': 'plus d\'historique nécessaire',
+  'ai.priorities': 'Priorités',
+  'ai.trendAnalysis': 'Analyse des tendances',
 }
 
 const DICTS: Record<Locale, Record<string, string>> = { en: EN, fr: FR }

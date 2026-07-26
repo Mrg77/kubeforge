@@ -3,8 +3,9 @@ import {
   LineChart, Line, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts'
 import { Sparkles, TrendingUp, Settings } from 'lucide-react'
-import { api, type Snapshot, type AIConfig } from '../api'
+import { api, type Snapshot, type AIConfig, type AIProvider } from '../api'
 import { Card, Spinner, ErrorNote, cn } from '../lib'
+import { useT } from '../i18n'
 
 // Insights: the trends-over-time charts (always available, deterministic) plus
 // the opt-in AI layer (bring-your-own-key) that summarizes and analyzes them.
@@ -40,6 +41,7 @@ function AIPanel({
   onConfig: (c: AIConfig) => void
   hasHistory: boolean
 }) {
+  const { t } = useT()
   const [showConfig, setShowConfig] = useState(!cfg.configured)
   const [summary, setSummary] = useState<string | null>(null)
   const [trend, setTrend] = useState<string | null>(null)
@@ -63,7 +65,7 @@ function AIPanel({
     <Card className="p-5">
       <div className="flex items-center gap-2">
         <Sparkles size={18} style={{ color: 'var(--color-accent)' }} />
-        <span className="font-medium">AI analysis</span>
+        <span className="font-medium">{t('ai.title')}</span>
         <span
           className="rounded-full px-2 py-0.5 text-[11px]"
           style={{
@@ -71,20 +73,17 @@ function AIPanel({
             background: cfg.configured ? 'var(--color-ok)1a' : 'transparent',
           }}
         >
-          {cfg.configured ? 'ready' : 'not configured'}
+          {cfg.configured ? t('ai.ready') : t('ai.notConfigured')}
         </span>
         <button
           onClick={() => setShowConfig((v) => !v)}
           className="ml-auto flex items-center gap-1.5 text-xs text-[var(--color-ink-dim)] hover:text-[var(--color-ink)]"
         >
-          <Settings size={13} /> settings
+          <Settings size={13} /> {t('ai.settings')}
         </button>
       </div>
 
-      <p className="mt-1 text-sm text-[var(--color-ink-dim)]">
-        Opt-in, bring-your-own-key. KubeForge sends the <em>findings</em> (counts, titles, trends) to
-        your model — never raw cluster objects or secrets. Everything else works without it.
-      </p>
+      <p className="mt-1 text-sm text-[var(--color-ink-dim)]">{t('ai.blurb')}</p>
 
       {showConfig && <ConfigForm cfg={cfg} onSaved={(c) => { onConfig(c); setShowConfig(!c.configured) }} />}
 
@@ -92,23 +91,23 @@ function AIPanel({
         <div className="mt-4 flex flex-wrap gap-3">
           <ActionButton
             icon={Sparkles}
-            label="Summarize & prioritize"
+            label={t('ai.summarize')}
             busy={busy === 'summary'}
             onClick={() => run('summary')}
           />
           <ActionButton
             icon={TrendingUp}
-            label="Analyze trends"
+            label={t('ai.analyzeTrends')}
             busy={busy === 'trend'}
             disabled={!hasHistory}
-            hint={!hasHistory ? 'needs more history' : undefined}
+            hint={!hasHistory ? t('ai.needHistory') : undefined}
             onClick={() => run('trend')}
           />
         </div>
       )}
 
-      {summary && <AIOutput title="Priorities" text={summary} />}
-      {trend && <AIOutput title="Trend analysis" text={trend} />}
+      {summary && <AIOutput title={t('ai.priorities')} text={summary} />}
+      {trend && <AIOutput title={t('ai.trendAnalysis')} text={trend} />}
     </Card>
   )
 }
@@ -128,6 +127,7 @@ function ActionButton({
   hint?: string
   onClick: () => void
 }) {
+  const { t } = useT()
   return (
     <button
       onClick={onClick}
@@ -141,7 +141,7 @@ function ActionButton({
       )}
     >
       <Icon size={15} />
-      {busy ? 'thinking…' : label}
+      {busy ? t('ai.thinking') : label}
     </button>
   )
 }
@@ -155,72 +155,136 @@ function AIOutput({ title, text }: { title: string; text: string }) {
   )
 }
 
+// PROVIDERS is the catalog powering the picker: brand, pre-filled models (so
+// nobody types a model name), and a direct link to create a key.
+const PROVIDERS: Record<AIProvider, {
+  label: string; brand: string; color: string; models: string[]; keyURL: string; keyLabel: string
+}> = {
+  anthropic: {
+    label: 'Claude', brand: 'Anthropic', color: '#d97757',
+    models: ['claude-opus-4-8', 'claude-sonnet-5', 'claude-haiku-4-5-20251001'],
+    keyURL: 'https://console.anthropic.com/settings/keys', keyLabel: 'console.anthropic.com',
+  },
+  openai: {
+    label: 'ChatGPT', brand: 'OpenAI', color: '#10a37f',
+    models: ['gpt-4o', 'gpt-4o-mini', 'o3-mini'],
+    keyURL: 'https://platform.openai.com/api-keys', keyLabel: 'platform.openai.com',
+  },
+  google: {
+    label: 'Gemini', brand: 'Google', color: '#4285f4',
+    models: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash'],
+    keyURL: 'https://aistudio.google.com/apikey', keyLabel: 'aistudio.google.com',
+  },
+}
+
 function ConfigForm({ cfg, onSaved }: { cfg: AIConfig; onSaved: (c: AIConfig) => void }) {
-  const [provider, setProvider] = useState(cfg.provider)
-  const [model, setModel] = useState(cfg.model || 'claude-haiku-4-5-20251001')
+  const { t } = useT()
+  const [provider, setProvider] = useState<AIProvider>(cfg.provider || 'anthropic')
+  const [model, setModel] = useState(cfg.model || PROVIDERS.anthropic.models[0])
   const [apiKey, setApiKey] = useState('')
   const [baseUrl, setBaseUrl] = useState(cfg.baseUrl ?? '')
-  const [saving, setSaving] = useState(false)
+  const [busy, setBusy] = useState<'test' | 'save' | null>(null)
+  const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null)
+
+  const meta = PROVIDERS[provider]
+
+  const pickProvider = (p: AIProvider) => {
+    setProvider(p)
+    setModel(PROVIDERS[p].models[0]) // sensible default model for that brand
+    setResult(null)
+  }
+
+  const test = async () => {
+    setBusy('test'); setResult(null)
+    try {
+      const r = await api.aiTest({ provider, model, apiKey, baseUrl })
+      setResult(r.ok ? { ok: true, msg: t('ai.connected') } : { ok: false, msg: r.error ?? 'failed' })
+    } catch (e) {
+      setResult({ ok: false, msg: String((e as Error).message ?? e) })
+    } finally { setBusy(null) }
+  }
 
   const save = async () => {
-    setSaving(true)
+    setBusy('save')
     try {
       await api.aiSaveConfig({ provider, model, apiKey, baseUrl })
       const fresh = await api.aiConfig()
       onSaved(fresh)
-    } finally {
-      setSaving(false)
-    }
+    } finally { setBusy(null) }
   }
 
   return (
-    <div className="mt-4 grid gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] p-4 md:grid-cols-2">
-      <label className="text-sm">
-        <span className="text-[var(--color-ink-dim)]">Provider</span>
-        <select
-          value={provider}
-          onChange={(e) => setProvider(e.target.value as AIConfig['provider'])}
-          className="mt-1 w-full rounded-md bg-[var(--color-surface-2)] px-3 py-1.5 outline-none"
-        >
-          <option value="anthropic">Anthropic</option>
-          <option value="openai">OpenAI-compatible (incl. Ollama)</option>
-        </select>
-      </label>
-      <label className="text-sm">
-        <span className="text-[var(--color-ink-dim)]">Model</span>
-        <input
-          value={model}
-          onChange={(e) => setModel(e.target.value)}
-          className="mt-1 w-full rounded-md bg-[var(--color-surface-2)] px-3 py-1.5 outline-none mono"
-        />
-      </label>
-      <label className="text-sm md:col-span-2">
-        <span className="text-[var(--color-ink-dim)]">API key</span>
-        <input
-          type="password"
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-          placeholder="stored locally, never sent to the browser again"
-          className="mt-1 w-full rounded-md bg-[var(--color-surface-2)] px-3 py-1.5 outline-none mono"
-        />
-      </label>
+    <div className="mt-4 flex flex-col gap-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] p-4">
+      {/* provider picker */}
+      <div>
+        <div className="mb-2 text-xs text-[var(--color-ink-dim)]">{t('ai.chooseAI')}</div>
+        <div className="grid grid-cols-3 gap-2">
+          {(Object.keys(PROVIDERS) as AIProvider[]).map((p) => {
+            const m = PROVIDERS[p]
+            const on = provider === p
+            return (
+              <button key={p} onClick={() => pickProvider(p)}
+                className="rounded-lg border p-3 text-left transition"
+                style={{ borderColor: on ? m.color : 'var(--color-border)', background: on ? `color-mix(in srgb, ${m.color} 12%, transparent)` : 'var(--color-surface-2)' }}>
+                <div className="text-sm font-semibold" style={{ color: on ? m.color : 'var(--color-ink)' }}>{m.label}</div>
+                <div className="text-[11px] text-[var(--color-ink-faint)]">{m.brand}</div>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        <label className="text-sm">
+          <span className="text-[var(--color-ink-dim)]">{t('ai.model')}</span>
+          <select value={model} onChange={(e) => { setModel(e.target.value); setResult(null) }}
+            className="mt-1 w-full rounded-md bg-[var(--color-surface-2)] px-3 py-1.5 outline-none mono">
+            {meta.models.map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </label>
+        <label className="text-sm">
+          <span className="flex items-center justify-between text-[var(--color-ink-dim)]">
+            {t('ai.apiKey')}
+            <a href={meta.keyURL} target="_blank" rel="noopener"
+              className="text-[11px] text-[var(--color-accent)] hover:underline">
+              {t('ai.getKey')} {meta.keyLabel}
+            </a>
+          </span>
+          <input type="password" value={apiKey}
+            onChange={(e) => { setApiKey(e.target.value); setResult(null) }}
+            placeholder={cfg.configured ? t('ai.keyPlaceholderKeep') : t('ai.keyPlaceholderNew')}
+            className="mt-1 w-full rounded-md bg-[var(--color-surface-2)] px-3 py-1.5 outline-none mono" />
+        </label>
+      </div>
+
       {provider === 'openai' && (
-        <label className="text-sm md:col-span-2">
-          <span className="text-[var(--color-ink-dim)]">Base URL (optional — e.g. http://localhost:11434/v1 for Ollama)</span>
-          <input
-            value={baseUrl}
-            onChange={(e) => setBaseUrl(e.target.value)}
-            className="mt-1 w-full rounded-md bg-[var(--color-surface-2)] px-3 py-1.5 outline-none mono"
-          />
+        <label className="text-sm">
+          <span className="text-[var(--color-ink-dim)]">{t('ai.baseUrl')}</span>
+          <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)}
+            placeholder="https://api.openai.com"
+            className="mt-1 w-full rounded-md bg-[var(--color-surface-2)] px-3 py-1.5 outline-none mono" />
         </label>
       )}
-      <div className="md:col-span-2">
-        <button
-          onClick={save}
-          disabled={saving || !model}
-          className="rounded-lg bg-[var(--color-accent)] px-4 py-1.5 text-sm font-medium text-[var(--color-bg)] disabled:opacity-50"
-        >
-          {saving ? 'saving…' : 'Save'}
+
+      {/* result banner */}
+      {result && (
+        <div className="rounded-md px-3 py-2 text-xs"
+          style={{
+            color: result.ok ? 'var(--color-ok)' : 'var(--color-crit)',
+            background: `color-mix(in srgb, ${result.ok ? 'var(--color-ok)' : 'var(--color-crit)'} 12%, transparent)`,
+          }}>
+          {result.ok ? '✓ ' : '✕ '}{result.msg}
+        </div>
+      )}
+
+      <div className="flex items-center gap-2">
+        <button onClick={test} disabled={busy !== null || !model}
+          className="rounded-lg border border-[var(--color-border)] px-4 py-1.5 text-sm text-[var(--color-ink-dim)] hover:bg-[var(--color-surface-2)] disabled:opacity-50">
+          {busy === 'test' ? t('ai.testing') : t('ai.testConn')}
+        </button>
+        <button onClick={save} disabled={busy !== null || !model}
+          className="rounded-lg bg-[var(--color-accent)] px-4 py-1.5 text-sm font-medium text-black disabled:opacity-50">
+          {busy === 'save' ? t('ai.saving') : t('ai.save')}
         </button>
       </div>
     </div>
