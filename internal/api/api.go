@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Mrg77/kubeforge/internal/cluster"
+	"github.com/Mrg77/kubeforge/internal/finops"
 	"github.com/Mrg77/kubeforge/internal/secops"
 )
 
@@ -36,7 +37,21 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/resources/{group}/{version}/{name}", s.handleListResource)
 	// Security posture scan.
 	mux.HandleFunc("GET /api/secops", s.handleSecOps)
+	// FinOps: waste & cost estimate.
+	mux.HandleFunc("GET /api/finops", s.handleFinOps)
 	return mux
+}
+
+// handleFinOps computes the cost/waste report.
+func (s *Server) handleFinOps(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := reqCtx(r)
+	defer cancel()
+	rep, err := finops.Scan(ctx, s.cluster.Kube, s.cluster.Metrics, finops.Prices{})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, rep)
 }
 
 // handleSecOps runs the deterministic security-posture scan.

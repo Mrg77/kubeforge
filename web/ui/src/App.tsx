@@ -5,13 +5,14 @@ import { cn, Spinner } from './lib'
 import { Overview } from './views/Overview'
 import { Resources } from './views/Resources'
 import { SecOps } from './views/SecOps'
+import { FinOps } from './views/FinOps'
 
 type Tab = 'overview' | 'resources' | 'finops' | 'secops'
 
 const NAV: { id: Tab; label: string; icon: typeof Activity; ready: boolean }[] = [
   { id: 'overview', label: 'Overview', icon: Activity, ready: true },
   { id: 'resources', label: 'Resources', icon: Boxes, ready: true },
-  { id: 'finops', label: 'FinOps', icon: DollarSign, ready: false },
+  { id: 'finops', label: 'FinOps', icon: DollarSign, ready: true },
   { id: 'secops', label: 'SecOps', icon: ShieldCheck, ready: true },
 ]
 
@@ -81,6 +82,7 @@ export default function App() {
           {tab === 'overview' && <Overview />}
           {tab === 'resources' && <Resources />}
           {tab === 'secops' && <SecOps />}
+          {tab === 'finops' && <FinOps />}
         </main>
       </div>
     </div>

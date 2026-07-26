@@ -61,6 +61,28 @@ export interface SecReport {
   scanned: { pods: number; namespaces: number; clusterRoleBindings: number }
 }
 
+export interface PodCost {
+  name: string
+  namespace: string
+  cpuRequest: number
+  cpuUsage: number
+  memRequestGB: number
+  memUsageGB: number
+  level: 'ok' | 'moderate' | 'high' | 'unbounded'
+  monthlyCost: number
+  wastedMonthly: number
+  recommendation: string
+  hasMetrics: boolean
+}
+
+export interface FinReport {
+  pods: PodCost[]
+  totalMonthly: number
+  wastedMonthly: number
+  metricsAvailable: boolean
+  prices: { perCPUHour: number; perGBHour: number }
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(path)
   if (!res.ok) {
@@ -88,4 +110,5 @@ export const api = {
     return get<GenericObject[]>(`/api/resources/${group}/${rk.version}/${rk.name}${q}`)
   },
   secops: () => get<SecReport>('/api/secops'),
+  finops: () => get<FinReport>('/api/finops'),
 }
