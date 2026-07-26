@@ -83,6 +83,25 @@ export interface FinReport {
   prices: { perCPUHour: number; perGBHour: number }
 }
 
+export interface Snapshot {
+  time: string
+  pods: number
+  unhealthy: number
+  restarts: number
+  secCritical: number
+  secHigh: number
+  secMedium: number
+  monthlyReserved: number
+  monthlyWasted: number
+}
+
+export interface AIConfig {
+  configured: boolean
+  provider: 'anthropic' | 'openai'
+  model: string
+  baseUrl?: string
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(path)
   if (!res.ok) {
@@ -95,6 +114,15 @@ async function get<T>(path: string): Promise<T> {
     }
     throw new Error(msg)
   }
+  return res.json() as Promise<T>
+}
+
+async function post<T>(path: string, body?: unknown): Promise<T> {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: body ? { 'content-type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  })
   return res.json() as Promise<T>
 }
 
@@ -111,4 +139,11 @@ export const api = {
   },
   secops: () => get<SecReport>('/api/secops'),
   finops: () => get<FinReport>('/api/finops'),
+  history: (since?: string) => get<Snapshot[]>('/api/history' + (since ? `?since=${since}` : '')),
+
+  aiConfig: () => get<AIConfig>('/api/ai/config'),
+  aiSaveConfig: (c: { provider: string; model: string; apiKey: string; baseUrl?: string }) =>
+    post<{ saved?: boolean; error?: string }>('/api/ai/config', c),
+  aiSummary: () => post<{ text?: string; error?: string }>('/api/ai/summary'),
+  aiTrends: () => post<{ text?: string; error?: string }>('/api/ai/trends'),
 }

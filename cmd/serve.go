@@ -2,16 +2,23 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/Mrg77/kubeforge/internal/api"
 	"github.com/Mrg77/kubeforge/internal/cluster"
+	"github.com/Mrg77/kubeforge/internal/history"
 	"github.com/Mrg77/kubeforge/internal/web"
 	webui "github.com/Mrg77/kubeforge/web"
 )
+
+// snapshotEvery is how often the background collector records a posture
+// snapshot for trend analysis.
+const snapshotEvery = 5 * time.Minute
 
 var (
 	serveKubeconfig string
@@ -42,15 +49,27 @@ network.
 		}
 		fmt.Printf("Connecting to context %q (%s)…\n", c.Context, c.Server)
 
+		ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
+		defer stop()
+
+		// History store + background collector for trends. Best-effort: if the
+		// store can't open, we run without history rather than failing.
+		var store *history.Store
+		if s, err := history.Open(); err != nil {
+			fmt.Fprintf(os.Stderr, "history disabled (%v)\n", err)
+		} else {
+			store = s
+			defer store.Close()
+			go history.NewCollector(c, store, snapshotEvery).Run(ctx)
+		}
+
 		srv := web.New(web.Config{
 			Host: serveHost,
 			Port: servePort,
 			Open: !serveNoOpen,
 			UI:   webui.Dist(), // the embedded frontend (may be empty until built)
-		}, api.New(c).Routes())
+		}, api.New(c, store).Routes())
 
-		ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
-		defer stop()
 		return srv.Serve(ctx)
 	},
 }
