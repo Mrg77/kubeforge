@@ -9,6 +9,7 @@ import { FinOps } from './views/FinOps'
 import { Insights } from './views/Insights'
 import { Storage } from './views/Storage'
 import { Topology } from './views/Topology'
+import { AIButton, AIDrawer } from './AIDrawer'
 
 type Tab = 'overview' | 'topology' | 'resources' | 'storage' | 'finops' | 'secops' | 'insights'
 
@@ -31,6 +32,7 @@ export default function App() {
   const [tab, setTabState] = useState<Tab>(initialTab)
   const [cluster, setCluster] = useState<ClusterInfo | null>(null)
   const [err, setErr] = useState<string | null>(null)
+  const [aiOpen, setAiOpen] = useState(false)
 
   // Reflect the active tab in the URL so views are deep-linkable and refresh-safe.
   const setTab = (t: Tab) => {
@@ -82,7 +84,8 @@ export default function App() {
 
       {/* Main */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <ClusterHeader cluster={cluster} error={err} />
+        <ClusterHeader cluster={cluster} error={err} onAskAI={() => setAiOpen(true)} />
+        <AIDrawer open={aiOpen} onClose={() => setAiOpen(false)} onGoInsights={() => setTab('insights')} />
         <main className="min-h-0 flex-1 overflow-auto p-6">
           {!cluster && !err && <Spinner />}
           {tab === 'overview' && <Overview />}
@@ -98,7 +101,7 @@ export default function App() {
   )
 }
 
-function ClusterHeader({ cluster, error }: { cluster: ClusterInfo | null; error: string | null }) {
+function ClusterHeader({ cluster, error, onAskAI }: { cluster: ClusterInfo | null; error: string | null; onAskAI: () => void }) {
   const reachable = cluster?.reachable
   const dot = error || cluster?.error ? 'var(--color-crit)' : reachable ? 'var(--color-ok)' : 'var(--color-warn)'
   return (
@@ -120,12 +123,15 @@ function ClusterHeader({ cluster, error }: { cluster: ClusterInfo | null; error:
       {cluster?.server && (
         <span className="hidden text-xs text-[var(--color-ink-faint)] mono md:inline">{cluster.server}</span>
       )}
-      <button
-        onClick={() => location.reload()}
-        className="ml-auto flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-2.5 py-1 text-xs text-[var(--color-ink-dim)] hover:bg-[var(--color-surface-2)]"
-      >
-        <RefreshCw size={12} /> refresh
-      </button>
+      <div className="ml-auto flex items-center gap-2">
+        <AIButton onOpen={onAskAI} />
+        <button
+          onClick={() => location.reload()}
+          className="flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-2.5 py-1 text-xs text-[var(--color-ink-dim)] hover:bg-[var(--color-surface-2)]"
+        >
+          <RefreshCw size={12} /> refresh
+        </button>
+      </div>
     </header>
   )
 }
