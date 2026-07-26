@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Mrg77/kubeforge/internal/cluster"
+	"github.com/Mrg77/kubeforge/internal/secops"
 )
 
 // Server holds the dependencies the handlers need.
@@ -33,7 +34,21 @@ func (s *Server) Routes() *http.ServeMux {
 	// Generic resource browser: discover every kind, then list any of them.
 	mux.HandleFunc("GET /api/resources", s.handleResourceKinds)
 	mux.HandleFunc("GET /api/resources/{group}/{version}/{name}", s.handleListResource)
+	// Security posture scan.
+	mux.HandleFunc("GET /api/secops", s.handleSecOps)
 	return mux
+}
+
+// handleSecOps runs the deterministic security-posture scan.
+func (s *Server) handleSecOps(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := reqCtx(r)
+	defer cancel()
+	rep, err := secops.Scan(ctx, s.cluster.Kube)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, rep)
 }
 
 // handleResourceKinds returns the catalog of every listable resource kind the

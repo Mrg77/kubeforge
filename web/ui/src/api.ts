@@ -46,6 +46,21 @@ export interface GenericObject {
   age: string
 }
 
+export interface SecFinding {
+  category: string
+  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFO'
+  title: string
+  object: string
+  namespace?: string
+  detail: string
+}
+
+export interface SecReport {
+  findings: SecFinding[]
+  counts: { critical: number; high: number; medium: number; low: number; info: number }
+  scanned: { pods: number; namespaces: number; clusterRoleBindings: number }
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(path)
   if (!res.ok) {
@@ -72,4 +87,5 @@ export const api = {
     const q = namespace ? `?namespace=${encodeURIComponent(namespace)}` : ''
     return get<GenericObject[]>(`/api/resources/${group}/${rk.version}/${rk.name}${q}`)
   },
+  secops: () => get<SecReport>('/api/secops'),
 }

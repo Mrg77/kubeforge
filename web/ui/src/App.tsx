@@ -4,6 +4,7 @@ import { api, type ClusterInfo } from './api'
 import { cn, Spinner } from './lib'
 import { Overview } from './views/Overview'
 import { Resources } from './views/Resources'
+import { SecOps } from './views/SecOps'
 
 type Tab = 'overview' | 'resources' | 'finops' | 'secops'
 
@@ -11,7 +12,7 @@ const NAV: { id: Tab; label: string; icon: typeof Activity; ready: boolean }[] =
   { id: 'overview', label: 'Overview', icon: Activity, ready: true },
   { id: 'resources', label: 'Resources', icon: Boxes, ready: true },
   { id: 'finops', label: 'FinOps', icon: DollarSign, ready: false },
-  { id: 'secops', label: 'SecOps', icon: ShieldCheck, ready: false },
+  { id: 'secops', label: 'SecOps', icon: ShieldCheck, ready: true },
 ]
 
 function initialTab(): Tab {
@@ -79,6 +80,7 @@ export default function App() {
           {!cluster && !err && <Spinner />}
           {tab === 'overview' && <Overview />}
           {tab === 'resources' && <Resources />}
+          {tab === 'secops' && <SecOps />}
         </main>
       </div>
     </div>
