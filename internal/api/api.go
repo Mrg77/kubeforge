@@ -38,6 +38,8 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/pods", s.handlePods)
 	mux.HandleFunc("GET /api/nodes", s.handleNodes)
 	mux.HandleFunc("GET /api/topology", s.handleTopology)
+	mux.HandleFunc("GET /api/layers", s.handleLayers)
+	mux.HandleFunc("GET /api/namespaces", s.handleNamespaces)
 	// Generic resource browser: discover every kind, then list any of them.
 	mux.HandleFunc("GET /api/resources", s.handleResourceKinds)
 	mux.HandleFunc("GET /api/resources/{group}/{version}/{name}", s.handleListResource)
@@ -312,6 +314,32 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, topo)
+}
+
+// handleNamespaces returns the namespace names, for the layered-view selector.
+func (s *Server) handleNamespaces(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := reqCtx(r)
+	defer cancel()
+	names, err := s.cluster.Namespaces(ctx)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, names)
+}
+
+// handleLayers returns the stacked resource graph for one namespace (Ingress
+// down to Secrets/RBAC/storage, with the references between them).
+func (s *Server) handleLayers(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := reqCtx(r)
+	defer cancel()
+	ns := r.URL.Query().Get("namespace")
+	g, err := s.cluster.LayeredNamespace(ctx, ns)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, g)
 }
 
 // reqCtx derives a request context with a sane timeout so a slow cluster can't

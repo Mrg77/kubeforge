@@ -24,12 +24,20 @@ type TopoNode struct {
 	Pods  []TopoPod `json:"pods"`
 }
 
-// TopoPod is a pod in the graph, with enough to color it by health.
+// TopoPod is a pod in the graph, with enough to color it by health and group it
+// by its owning workload (so views can render Deployment/StatefulSet/… clusters
+// rather than a wall of anonymous pods).
 type TopoPod struct {
 	Name      string `json:"name"`
 	Namespace string `json:"namespace"`
 	Healthy   bool   `json:"healthy"`
 	Status    string `json:"status"`
+	// Owner is the controlling workload ("web", "postgres"…), derived from the
+	// pod's ownerReferences (a Deployment shows through its ReplicaSet). Falls
+	// back to the pod name when a pod is standalone.
+	Owner string `json:"owner"`
+	// OwnerKind is Deployment/StatefulSet/DaemonSet/Job/ReplicaSet/Pod.
+	OwnerKind string `json:"ownerKind"`
 }
 
 // TopoService is a service and the pod keys (namespace/name) it selects, so the
@@ -39,6 +47,40 @@ type TopoService struct {
 	Namespace string   `json:"namespace"`
 	Type      string   `json:"type"`
 	PodKeys   []string `json:"podKeys"`
+}
+
+// workloadOf resolves the workload a pod belongs to from its ownerReferences.
+// A Deployment owns a ReplicaSet which owns the pod, so for a ReplicaSet owner
+// we strip the RS's trailing hash to recover the Deployment name
+// ("web-7d4f9c" -> "web"). Standalone pods return their own name.
+func workloadOf(p *corev1.Pod) (name, kind string) {
+	for _, ref := range p.OwnerReferences {
+		if ref.Controller == nil || !*ref.Controller {
+			continue
+		}
+		switch ref.Kind {
+		case "ReplicaSet":
+			// RS name is "<deployment>-<podtemplatehash>"; drop the last segment.
+			if idx := lastDash(ref.Name); idx > 0 {
+				return ref.Name[:idx], "Deployment"
+			}
+			return ref.Name, "ReplicaSet"
+		case "StatefulSet", "DaemonSet", "Job":
+			return ref.Name, ref.Kind
+		default:
+			return ref.Name, ref.Kind
+		}
+	}
+	return p.Name, "Pod"
+}
+
+func lastDash(s string) int {
+	for i := len(s) - 1; i >= 0; i-- {
+		if s[i] == '-' {
+			return i
+		}
+	}
+	return -1
 }
 
 // BuildTopology assembles the graph. It's read-only and bounded to the given
@@ -63,7 +105,11 @@ func (c *Client) BuildTopology(ctx context.Context, ns string) (*Topology, error
 	for i := range podList.Items {
 		p := &podList.Items[i]
 		sum := summarizePod(p)
-		tp := TopoPod{Name: p.Name, Namespace: p.Namespace, Healthy: sum.Healthy, Status: sum.Status}
+		owner, ownerKind := workloadOf(p)
+		tp := TopoPod{
+			Name: p.Name, Namespace: p.Namespace, Healthy: sum.Healthy, Status: sum.Status,
+			Owner: owner, OwnerKind: ownerKind,
+		}
 		node := p.Spec.NodeName
 		if node == "" {
 			node = "(unscheduled)"

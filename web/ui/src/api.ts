@@ -30,13 +30,42 @@ export interface Node {
   age: string
 }
 
+export interface TopoPod {
+  name: string
+  namespace: string
+  healthy: boolean
+  status: string
+  owner: string
+  ownerKind: string
+}
+
 export interface Topology {
   nodes: {
     name: string
     ready: boolean
-    pods: { name: string; namespace: string; healthy: boolean; status: string }[]
+    pods: TopoPod[]
   }[]
   services: { name: string; namespace: string; type: string; podKeys: string[] }[]
+}
+
+export interface GraphNode {
+  id: string
+  kind: string
+  name: string
+  layer: string
+  healthy: boolean
+  detail: string
+}
+export interface GraphEdge {
+  from: string
+  to: string
+  kind: string
+}
+export interface LayeredGraph {
+  namespace: string
+  layers: { id: string; label: string }[]
+  nodes: GraphNode[]
+  edges: GraphEdge[]
 }
 
 export interface ResourceKind {
@@ -167,6 +196,9 @@ export const api = {
   nodes: () => get<Node[]>('/api/nodes'),
   topology: (namespace?: string) =>
     get<Topology>('/api/topology' + (namespace ? `?namespace=${encodeURIComponent(namespace)}` : '')),
+  namespaces: () => get<string[]>('/api/namespaces'),
+  layers: (namespace: string) =>
+    get<LayeredGraph>(`/api/layers?namespace=${encodeURIComponent(namespace)}`),
   resourceKinds: () => get<ResourceKind[]>('/api/resources'),
   listResource: (rk: ResourceKind, namespace?: string) => {
     const group = rk.group === '' ? 'core' : rk.group
