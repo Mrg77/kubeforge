@@ -1,0 +1,101 @@
+# GoReleaser config for KubeForge.
+# Cross-compiles the single embedded binary, publishes GitHub release archives,
+# and updates a Homebrew tap so `brew install mrg77/tap/kubeforge` just works.
+#
+# The frontend must be built first (it's embedded via go:embed all:dist), so the
+# `before` hook runs the Vite build to populate web/dist before any go build.
+version: 2
+
+project_name: kubeforge
+
+before:
+  hooks:
+    - go mod tidy
+    # Build the embedded frontend so go:embed has real assets.
+    - sh -c "cd web/ui && npm ci"
+    - sh -c "cd web/ui && npm run build"
+
+builds:
+  - id: kubeforge
+    main: .
+    binary: kubeforge
+    env:
+      - CGO_ENABLED=0 # pure-Go (modernc sqlite), so static cross-compiles cleanly
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w
+      - -X github.com/Mrg77/kubeforge/cmd.version={{ .Version }}
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    # zip on Windows, tar.gz elsewhere.
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - README.md
+      - README.fr.md
+      - LICENSE
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - Merge pull request
+      - Merge branch
+
+# Homebrew tap — publishes a cask to github.com/Mrg77/homebrew-tap so users can
+# `brew install mrg77/tap/kubeforge`. Requires a HOMEBREW_TAP_TOKEN secret with
+# push access to that (separate) repo. (GoReleaser v2 replaced `brews` with
+# `homebrew_casks`.)
+homebrew_casks:
+  - name: kubeforge
+    repository:
+      owner: Mrg77
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: "https://github.com/Mrg77/kubeforge"
+    description: "A local-first web console to understand and optimize your Kubernetes cluster."
+    commit_author:
+      name: Mrg77
+      email: 52857557+Mrg77@users.noreply.github.com
+    # Clear the quarantine attribute so the unsigned binary runs without a
+    # Gatekeeper prompt on macOS.
+    hooks:
+      post:
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/kubeforge"]
+          end
+
+release:
+  github:
+    owner: Mrg77
+    name: kubeforge
+  draft: false
+  prerelease: auto
+  footer: |
+    ---
+    Built with GoReleaser. `brew install mrg77/tap/kubeforge` or grab a binary above.

@@ -1,0 +1,48 @@
+name: CI
+
+# Build the frontend, vet and build the Go binary on every push and PR.
+# Green here means: the single embedded binary compiles from a clean checkout.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build & vet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # --- frontend: produce web/dist so go:embed has real assets to embed ---
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/ui/package-lock.json
+
+      - name: Build frontend
+        working-directory: web/ui
+        run: |
+          npm ci
+          npm run build
+
+      # --- backend: vet + build the single binary ---
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        run: go build -o kubeforge .
+
+      - name: Smoke test (binary runs)
+        run: ./kubeforge --version
