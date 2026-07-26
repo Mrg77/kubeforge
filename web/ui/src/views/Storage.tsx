@@ -2,8 +2,13 @@ import { useEffect, useState } from 'react'
 import { api, type StorageReport } from '../api'
 import { Card, Stat, Spinner, ErrorNote } from '../lib'
 
+// ~$/GB-month for provisioned block storage — same order of magnitude the FinOps
+// PVC cost uses, so the two views agree. Rough, for ranking not billing.
+const GB_MONTH = 0.1
+
 // Storage: the pillar most dashboards skip. PV / PVC / StorageClass, with the
-// waste that hides in them called out — orphaned volumes and unmounted claims.
+// waste that hides in them called out — orphaned volumes and unmounted claims,
+// now costed so wasted storage shows up as dollars.
 export function Storage() {
   const [rep, setRep] = useState<StorageReport | null>(null)
   const [err, setErr] = useState<string | null>(null)
@@ -15,15 +20,19 @@ export function Storage() {
   if (err) return <ErrorNote message={err} />
   if (!rep) return <Spinner />
 
+  const monthly = rep.totalCapacityGB * GB_MONTH
+  const orphanCost = rep.orphanedCapacityGB * GB_MONTH
+
   return (
     <div className="flex flex-col gap-6">
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
         <Stat label="Capacity" value={`${rep.totalCapacityGB} GB`} hint={`${rep.volumes.length} volumes`} />
+        <Stat label="Est. cost / mo" value={`$${round0(monthly)}`} hint={`~$${GB_MONTH}/GB·mo`} />
         <Stat
           label="Orphaned"
           value={`${rep.orphanedCapacityGB} GB`}
           tone={rep.orphanedCapacityGB > 0 ? 'warn' : 'ok'}
-          hint="released / unbound"
+          hint={orphanCost > 0 ? `~$${round0(orphanCost)}/mo wasted` : 'released / unbound'}
         />
         <Stat
           label="Unmounted PVCs"
@@ -155,3 +164,5 @@ function Table({
     </div>
   )
 }
+
+function round0(n: number) { return Math.round(n) }

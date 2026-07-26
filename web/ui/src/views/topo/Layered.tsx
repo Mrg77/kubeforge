@@ -54,9 +54,15 @@ export function Layered() {
 
   useEffect(() => {
     api.namespaces().then((all) => {
-      // prefer an interesting workload namespace as the default
+      // honor a deep-link ?ns=… (e.g. from a SecOps "view in stack" link),
+      // else prefer an interesting workload namespace as the default.
+      const wanted = new URLSearchParams(location.search).get('ns')
       const skip = new Set(['kube-system', 'kube-public', 'kube-node-lease'])
-      const pref = all.find((n) => n === 'shop') ?? all.find((n) => !skip.has(n)) ?? all[0]
+      const pref =
+        (wanted && all.includes(wanted) ? wanted : undefined) ??
+        all.find((n) => n === 'shop') ??
+        all.find((n) => !skip.has(n)) ??
+        all[0]
       setNsList(all)
       setNs(pref)
     }).catch((e) => setErr(String(e.message ?? e)))
