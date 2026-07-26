@@ -102,6 +102,21 @@ export interface AIConfig {
   baseUrl?: string
 }
 
+export interface StorageReport {
+  volumes: {
+    name: string; capacityGB: number; phase: string; storageClass: string
+    claim?: string; reclaimPolicy: string; orphaned: boolean; age: string
+  }[]
+  claims: {
+    name: string; namespace: string; phase: string; capacityGB: number
+    storageClass: string; volume?: string; unmounted: boolean; age: string
+  }[]
+  classes: { name: string; provisioner: string; default: boolean; reclaimPolicy: string; age: string }[]
+  totalCapacityGB: number
+  orphanedCapacityGB: number
+  unmountedClaims: number
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(path)
   if (!res.ok) {
@@ -139,6 +154,7 @@ export const api = {
   },
   secops: () => get<SecReport>('/api/secops'),
   finops: () => get<FinReport>('/api/finops'),
+  storage: () => get<StorageReport>('/api/storage'),
   history: (since?: string) => get<Snapshot[]>('/api/history' + (since ? `?since=${since}` : '')),
 
   aiConfig: () => get<AIConfig>('/api/ai/config'),

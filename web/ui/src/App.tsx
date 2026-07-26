@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Activity, Boxes, DollarSign, ShieldCheck, Sparkles, Server, RefreshCw } from 'lucide-react'
+import { Activity, Boxes, Database, DollarSign, ShieldCheck, Sparkles, Server, RefreshCw } from 'lucide-react'
 import { api, type ClusterInfo } from './api'
 import { cn, Spinner } from './lib'
 import { Overview } from './views/Overview'
@@ -7,12 +7,14 @@ import { Resources } from './views/Resources'
 import { SecOps } from './views/SecOps'
 import { FinOps } from './views/FinOps'
 import { Insights } from './views/Insights'
+import { Storage } from './views/Storage'
 
-type Tab = 'overview' | 'resources' | 'finops' | 'secops' | 'insights'
+type Tab = 'overview' | 'resources' | 'storage' | 'finops' | 'secops' | 'insights'
 
 const NAV: { id: Tab; label: string; icon: typeof Activity; ready: boolean }[] = [
   { id: 'overview', label: 'Overview', icon: Activity, ready: true },
   { id: 'resources', label: 'Resources', icon: Boxes, ready: true },
+  { id: 'storage', label: 'Storage', icon: Database, ready: true },
   { id: 'finops', label: 'FinOps', icon: DollarSign, ready: true },
   { id: 'secops', label: 'SecOps', icon: ShieldCheck, ready: true },
   { id: 'insights', label: 'Insights', icon: Sparkles, ready: true },
@@ -20,7 +22,7 @@ const NAV: { id: Tab; label: string; icon: typeof Activity; ready: boolean }[] =
 
 function initialTab(): Tab {
   const t = new URLSearchParams(location.search).get('tab')
-  return ['resources','finops','secops','insights'].includes(t ?? '') ? (t as Tab) : 'overview'
+  return ['resources','storage','finops','secops','insights'].includes(t ?? '') ? (t as Tab) : 'overview'
 }
 
 export default function App() {
@@ -83,6 +85,7 @@ export default function App() {
           {!cluster && !err && <Spinner />}
           {tab === 'overview' && <Overview />}
           {tab === 'resources' && <Resources />}
+          {tab === 'storage' && <Storage />}
           {tab === 'secops' && <SecOps />}
           {tab === 'finops' && <FinOps />}
           {tab === 'insights' && <Insights />}

@@ -16,6 +16,7 @@ import (
 	"github.com/Mrg77/kubeforge/internal/finops"
 	"github.com/Mrg77/kubeforge/internal/history"
 	"github.com/Mrg77/kubeforge/internal/secops"
+	"github.com/Mrg77/kubeforge/internal/storage"
 )
 
 // Server holds the dependencies the handlers need.
@@ -43,6 +44,8 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/secops", s.handleSecOps)
 	// FinOps: waste & cost estimate.
 	mux.HandleFunc("GET /api/finops", s.handleFinOps)
+	// Storage: PV/PVC/StorageClass + orphaned-volume waste.
+	mux.HandleFunc("GET /api/storage", s.handleStorage)
 	// History: snapshots over time, for trend charts and AI trend analysis.
 	mux.HandleFunc("GET /api/history", s.handleHistory)
 	// AI (opt-in, bring-your-own-key): config + analysis endpoints.
@@ -133,6 +136,18 @@ func (s *Server) handleAITrends(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"text": text})
+}
+
+// handleStorage returns the PV/PVC/StorageClass picture + orphaned-volume waste.
+func (s *Server) handleStorage(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := reqCtx(r)
+	defer cancel()
+	rep, err := storage.Scan(ctx, s.cluster.Kube)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, rep)
 }
 
 // handleHistory returns the recorded snapshots for the current cluster, newest
