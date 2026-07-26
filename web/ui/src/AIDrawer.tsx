@@ -37,6 +37,7 @@ export function AIDrawer({ open, onClose, onGoInsights }: {
   onClose: () => void
   onGoInsights: () => void
 }) {
+  const { locale } = useT()
   const [cfg, setCfg] = useState<AIConfig | null>(null)
   const [out, setOut] = useState<{ kind: string; text: string } | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -49,7 +50,7 @@ export function AIDrawer({ open, onClose, onGoInsights }: {
     setBusy(kind)
     setOut(null)
     try {
-      const res = kind === 'summary' ? await api.aiSummary() : await api.aiTrends()
+      const res = kind === 'summary' ? await api.aiSummary(locale) : await api.aiTrends(locale)
       if (res.error) throw new Error(res.error)
       setOut({ kind, text: res.text! })
     } catch (e) {

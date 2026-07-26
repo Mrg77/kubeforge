@@ -41,7 +41,7 @@ function AIPanel({
   onConfig: (c: AIConfig) => void
   hasHistory: boolean
 }) {
-  const { t } = useT()
+  const { t, locale } = useT()
   const [showConfig, setShowConfig] = useState(!cfg.configured)
   const [summary, setSummary] = useState<string | null>(null)
   const [trend, setTrend] = useState<string | null>(null)
@@ -50,7 +50,7 @@ function AIPanel({
   const run = async (kind: 'summary' | 'trend') => {
     setBusy(kind)
     try {
-      const res = kind === 'summary' ? await api.aiSummary() : await api.aiTrends()
+      const res = kind === 'summary' ? await api.aiSummary(locale) : await api.aiTrends(locale)
       if (res.error) throw new Error(res.error)
       kind === 'summary' ? setSummary(res.text!) : setTrend(res.text!)
     } catch (e) {

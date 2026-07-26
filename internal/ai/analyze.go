@@ -10,18 +10,26 @@ import (
 	"github.com/Mrg77/kubeforge/internal/secops"
 )
 
-// The system prompt anchors the model in KubeForge's honest, ops-focused voice.
-const systemPrompt = `You are the analysis assistant inside KubeForge, a Kubernetes console.
+// systemPromptFor anchors the model in KubeForge's honest, ops-focused voice and
+// pins the response language to the user's UI locale — so a French UI gets a
+// French brief, not English.
+func systemPromptFor(lang string) string {
+	base := `You are the analysis assistant inside KubeForge, a Kubernetes console.
 The findings you're given were produced by DETERMINISTIC scanners — you do not
 detect anything, you explain and prioritize. Be concise, concrete, and honest.
 Speak to a DevOps/SRE. No fluff, no hedging boilerplate. Prefer specific actions
 ("lower the memory request on X") over generic advice. If something isn't a real
 problem, say so. Never invent findings that aren't in the data.`
+	if lang == "fr" {
+		return base + "\nRÉPONDS EN FRANÇAIS. Rédige toute ta réponse en français."
+	}
+	return base + "\nRespond in English."
+}
 
 // Summarize turns the current posture (health + security + cost) into a short,
 // prioritized brief: the state of the cluster and the few things to fix first.
 // It sends only aggregated findings — never raw cluster objects or secrets.
-func (c *Client) Summarize(ctx context.Context, sec *secops.Report, fin *finops.Report, pods, unhealthy int) (string, error) {
+func (c *Client) Summarize(ctx context.Context, sec *secops.Report, fin *finops.Report, pods, unhealthy int, lang string) (string, error) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Cluster snapshot:\n")
 	fmt.Fprintf(&b, "- Health: %d pods, %d unhealthy.\n", pods, unhealthy)
@@ -53,12 +61,12 @@ Write a brief for the operator:
 1. One or two sentences on the overall state.
 2. A prioritized list of the 3-5 most important actions, most urgent first, each with a one-line "why".
 Keep it tight.`
-	return c.Complete(ctx, systemPrompt, user)
+	return c.Complete(ctx, systemPromptFor(lang), user)
 }
 
 // AnalyzeTrends reads the history snapshots and tells the operator whether the
 // cluster is getting better or worse, and what's driving the change.
-func (c *Client) AnalyzeTrends(ctx context.Context, snaps []history.Snapshot) (string, error) {
+func (c *Client) AnalyzeTrends(ctx context.Context, snaps []history.Snapshot, lang string) (string, error) {
 	if len(snaps) < 2 {
 		return "", fmt.Errorf("not enough history yet to analyze trends (need at least 2 snapshots)")
 	}
@@ -75,5 +83,5 @@ Analyze the trend:
 2. Call out the biggest movements (e.g. "wasted spend rose 40% then recovered", "critical findings doubled").
 3. One or two concrete things to watch or act on.
 Be specific about the numbers.`
-	return c.Complete(ctx, systemPrompt, user)
+	return c.Complete(ctx, systemPromptFor(lang), user)
 }

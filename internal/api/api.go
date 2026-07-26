@@ -186,7 +186,8 @@ func (s *Server) handleAISummary(w http.ResponseWriter, r *http.Request) {
 			unhealthy++
 		}
 	}
-	text, err := client.Summarize(ctx, sec, fin, len(pods), unhealthy)
+	lang := r.URL.Query().Get("lang")
+	text, err := client.Summarize(ctx, sec, fin, len(pods), unhealthy, lang)
 	if err != nil {
 		writeJSON(w, http.StatusOK, map[string]string{"error": err.Error()})
 		return
@@ -209,7 +210,8 @@ func (s *Server) handleAITrends(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	snaps, _ := s.history.Since(ctx, s.cluster.Context, time.Now().Add(-30*24*time.Hour))
-	text, err := client.AnalyzeTrends(ctx, snaps)
+	lang := r.URL.Query().Get("lang")
+	text, err := client.AnalyzeTrends(ctx, snaps, lang)
 	if err != nil {
 		writeJSON(w, http.StatusOK, map[string]string{"error": err.Error()})
 		return
