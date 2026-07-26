@@ -1,17 +1,25 @@
 import { useEffect, useState } from 'react'
-import { api, type Pod, type Node } from '../api'
+import { api, type Pod, type Node, type FinReport, type SecReport, type StorageReport } from '../api'
 import { Card, Stat, StatusBadge, Spinner, ErrorNote } from '../lib'
 
-// Overview: the "how is my cluster doing?" landing view. Health first —
-// unhealthy pods surface at the top, with the counts that matter at a glance.
+// Overview: the "how is my cluster doing?" landing hub. A pillar summary row up
+// top gives the headline for each area (cost, security, storage) and links into
+// it; below, cluster health with unhealthy pods surfaced first.
 export function Overview() {
   const [pods, setPods] = useState<Pod[] | null>(null)
   const [nodes, setNodes] = useState<Node[] | null>(null)
+  const [fin, setFin] = useState<FinReport | null>(null)
+  const [sec, setSec] = useState<SecReport | null>(null)
+  const [sto, setSto] = useState<StorageReport | null>(null)
   const [err, setErr] = useState<string | null>(null)
 
   useEffect(() => {
     api.pods().then(setPods).catch((e) => setErr(String(e.message ?? e)))
     api.nodes().then(setNodes).catch(() => {})
+    // pillar headlines — best-effort, they enrich the hub but never block it
+    api.finops().then(setFin).catch(() => {})
+    api.secops().then(setSec).catch(() => {})
+    api.storage().then(setSto).catch(() => {})
   }, [])
 
   if (err) return <ErrorNote message={err} />
@@ -22,7 +30,23 @@ export function Overview() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Stats row */}
+      {/* Pillar hub — headline per area, click to dive in */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <PillarCard tab="finops" title="FinOps" accent="var(--color-warn)"
+          value={fin ? `$${Math.round(fin.wastedMonthly)}/mo` : '…'}
+          sub={fin ? 'estimated waste' : 'loading'} />
+        <PillarCard tab="secops" title="SecOps" accent="var(--color-crit)"
+          value={sec ? `${sec.counts.critical + sec.counts.high}` : '…'}
+          sub={sec ? 'critical + high findings' : 'loading'} />
+        <PillarCard tab="storage" title="Storage" accent="var(--color-info)"
+          value={sto ? `${sto.totalCapacityGB} GB` : '…'}
+          sub={sto ? `${sto.orphanedCapacityGB} GB orphaned` : 'loading'} />
+        <PillarCard tab="topology" title="Topology" accent="var(--color-accent)"
+          value={nodes ? `${nodes.length} nodes` : '…'}
+          sub="explore the resource stack" />
+      </div>
+
+      {/* Health stats row */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Stat label="Pods" value={pods.length} hint={`${pods.length - unhealthy.length} healthy`} />
         <Stat
@@ -58,6 +82,30 @@ export function Overview() {
         <PodTable pods={pods} />
       </Card>
     </div>
+  )
+}
+
+// PillarCard is a clickable hub tile linking to a pillar's tab. It navigates by
+// setting ?tab= and reloading — the app reads the tab from the URL on load.
+function PillarCard({ tab, title, value, sub, accent }: {
+  tab: string; title: string; value: string; sub: string; accent: string
+}) {
+  const go = () => {
+    const u = new URL(location.href)
+    u.searchParams.set('tab', tab)
+    location.assign(u.toString())
+  }
+  return (
+    <button onClick={go}
+      className="group rounded-xl border p-4 text-left transition hover:border-[color:var(--accent)]"
+      style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)', ['--accent' as string]: accent }}>
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] uppercase tracking-wide" style={{ color: accent }}>{title}</span>
+        <span className="text-[var(--color-ink-faint)] transition group-hover:translate-x-0.5">→</span>
+      </div>
+      <div className="mt-1 text-2xl font-semibold text-[var(--color-ink)]">{value}</div>
+      <div className="mt-0.5 text-xs text-[var(--color-ink-dim)]">{sub}</div>
+    </button>
   )
 }
 
