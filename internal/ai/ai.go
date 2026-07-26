@@ -83,6 +83,72 @@ func (c *Client) Ping(ctx context.Context) error {
 	return err
 }
 
+// Models lists the models the key actually has access to, by calling the
+// provider's list-models endpoint — so the UI shows the real, current catalog
+// instead of a hardcoded (and quickly stale) list. Chat-only prefixes and
+// non-generative models are left for the UI to present as-is.
+func (c *Client) Models(ctx context.Context) ([]string, error) {
+	switch c.cfg.Provider {
+	case ProviderAnthropic:
+		return c.listOpenAIStyle(ctx, c.baseURL("https://api.anthropic.com")+"/v1/models",
+			func(r *http.Request) { r.Header.Set("x-api-key", c.cfg.APIKey); r.Header.Set("anthropic-version", "2023-06-01") })
+	case ProviderGoogle:
+		return c.listGoogle(ctx)
+	default:
+		return c.listOpenAIStyle(ctx, chatBase(c.baseURL("https://api.openai.com"))+"/models",
+			func(r *http.Request) { r.Header.Set("authorization", "Bearer "+c.cfg.APIKey) })
+	}
+}
+
+// listOpenAIStyle handles the OpenAI-shaped {"data":[{"id":...}]} response,
+// which Anthropic, OpenAI, Mistral, Groq, DeepSeek, xAI, OpenRouter… all use.
+func (c *Client) listOpenAIStyle(ctx context.Context, url string, auth func(*http.Request)) ([]string, error) {
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	auth(req)
+	var out struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := c.do(req, &out); err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(out.Data))
+	for _, m := range out.Data {
+		ids = append(ids, m.ID)
+	}
+	return ids, nil
+}
+
+// listGoogle handles Gemini's {"models":[{"name":"models/gemini-…"}]} shape.
+func (c *Client) listGoogle(ctx context.Context) ([]string, error) {
+	url := fmt.Sprintf("%s/v1beta/models?key=%s", c.baseURL("https://generativelanguage.googleapis.com"), c.cfg.APIKey)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	var out struct {
+		Models []struct {
+			Name string `json:"name"`
+		} `json:"models"`
+	}
+	if err := c.do(req, &out); err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(out.Models))
+	for _, m := range out.Models {
+		ids = append(ids, strings.TrimPrefix(m.Name, "models/"))
+	}
+	return ids, nil
+}
+
+// chatBase strips a trailing /chat/completions or /v1 so we can append /models.
+func chatBase(base string) string {
+	b := strings.TrimRight(base, "/")
+	b = strings.TrimSuffix(b, "/chat/completions")
+	if strings.HasSuffix(b, "/v1") {
+		return b
+	}
+	return b + "/v1"
+}
+
 func (c *Client) anthropic(ctx context.Context, system, user string) (string, error) {
 	body, _ := json.Marshal(map[string]any{
 		"model":      c.cfg.Model,

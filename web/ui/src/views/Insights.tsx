@@ -217,16 +217,39 @@ function ConfigForm({ cfg, onSaved }: { cfg: AIConfig; onSaved: (c: AIConfig) =>
   const [model, setModel] = useState(cfg.model || presetFor(cfg).models[0] || '')
   const [apiKey, setApiKey] = useState('')
   const [baseUrl, setBaseUrl] = useState(cfg.baseUrl ?? presetFor(cfg).baseUrl ?? '')
-  const [busy, setBusy] = useState<'test' | 'save' | null>(null)
+  const [busy, setBusy] = useState<'test' | 'save' | 'models' | null>(null)
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null)
+  // Live models fetched from the provider (empty = fall back to preset defaults).
+  const [liveModels, setLiveModels] = useState<string[] | null>(null)
 
   const provider = preset.provider
+  // The list shown in the dropdown: real models once fetched, else preset seeds.
+  const modelOptions = liveModels ?? preset.models
 
   const pickPreset = (p: Preset) => {
     setPreset(p)
     setModel(p.models[0] ?? '')
     setBaseUrl(p.baseUrl ?? '')
+    setLiveModels(null)
     setResult(null)
+  }
+
+  // Ask the provider which models this key can use, and populate the dropdown.
+  const loadModels = async () => {
+    setBusy('models'); setResult(null)
+    try {
+      const r = await api.aiModels({ provider, apiKey, baseUrl })
+      if (r.error || !r.models?.length) {
+        setResult({ ok: false, msg: r.error ?? 'no models returned' })
+      } else {
+        const sorted = [...r.models].sort()
+        setLiveModels(sorted)
+        if (!sorted.includes(model)) setModel(sorted[0])
+        setResult({ ok: true, msg: t('ai.modelsLoaded', { n: sorted.length }) })
+      }
+    } catch (e) {
+      setResult({ ok: false, msg: String((e as Error).message ?? e) })
+    } finally { setBusy(null) }
   }
 
   const test = async () => {
@@ -268,46 +291,56 @@ function ConfigForm({ cfg, onSaved }: { cfg: AIConfig; onSaved: (c: AIConfig) =>
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2">
-        <label className="text-sm">
-          <span className="text-[var(--color-ink-dim)]">{t('ai.model')}</span>
-          {preset.custom ? (
-            <input value={model} onChange={(e) => { setModel(e.target.value); setResult(null) }}
-              placeholder="model-name"
-              className="mt-1 w-full rounded-md bg-[var(--color-surface-2)] px-3 py-1.5 outline-none mono" />
-          ) : (
-            <select value={model} onChange={(e) => { setModel(e.target.value); setResult(null) }}
-              className="mt-1 w-full rounded-md bg-[var(--color-surface-2)] px-3 py-1.5 outline-none mono">
-              {preset.models.map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
+      {/* 1) API key first — that's what unlocks the real model list */}
+      <label className="text-sm">
+        <span className="flex items-center justify-between text-[var(--color-ink-dim)]">
+          {t('ai.apiKey')}
+          {preset.keyURL && (
+            <a href={preset.keyURL} target="_blank" rel="noopener"
+              className="text-[11px] text-[var(--color-accent)] hover:underline">
+              {t('ai.getKey')} {preset.keyLabel}
+            </a>
           )}
-        </label>
-        <label className="text-sm">
-          <span className="flex items-center justify-between text-[var(--color-ink-dim)]">
-            {t('ai.apiKey')}
-            {preset.keyURL && (
-              <a href={preset.keyURL} target="_blank" rel="noopener"
-                className="text-[11px] text-[var(--color-accent)] hover:underline">
-                {t('ai.getKey')} {preset.keyLabel}
-              </a>
-            )}
-          </span>
-          <input type="password" value={apiKey}
-            onChange={(e) => { setApiKey(e.target.value); setResult(null) }}
-            placeholder={cfg.configured ? t('ai.keyPlaceholderKeep') : t('ai.keyPlaceholderNew')}
-            className="mt-1 w-full rounded-md bg-[var(--color-surface-2)] px-3 py-1.5 outline-none mono" />
-        </label>
-      </div>
+        </span>
+        <input type="password" value={apiKey}
+          onChange={(e) => { setApiKey(e.target.value); setResult(null); setLiveModels(null) }}
+          placeholder={cfg.configured ? t('ai.keyPlaceholderKeep') : t('ai.keyPlaceholderNew')}
+          className="mt-1 w-full rounded-md bg-[var(--color-surface-2)] px-3 py-1.5 outline-none mono" />
+      </label>
 
-      {/* base URL: editable for Custom, shown read-only-ish for OpenAI-compat presets */}
+      {/* 2) base URL for OpenAI-compatible / custom endpoints */}
       {provider === 'openai' && (
         <label className="text-sm">
           <span className="text-[var(--color-ink-dim)]">{t('ai.baseUrl')}</span>
-          <input value={baseUrl} onChange={(e) => { setBaseUrl(e.target.value); setResult(null) }}
+          <input value={baseUrl} onChange={(e) => { setBaseUrl(e.target.value); setResult(null); setLiveModels(null) }}
             placeholder="https://api.openai.com  ·  or your own endpoint"
             className="mt-1 w-full rounded-md bg-[var(--color-surface-2)] px-3 py-1.5 outline-none mono" />
         </label>
       )}
+
+      {/* 3) model — fetched live from the provider with the key above */}
+      <label className="text-sm">
+        <span className="flex items-center justify-between text-[var(--color-ink-dim)]">
+          {t('ai.model')}
+          <button onClick={loadModels} disabled={busy !== null || (!apiKey && !cfg.configured)}
+            className="text-[11px] text-[var(--color-accent)] hover:underline disabled:opacity-40 disabled:no-underline">
+            {busy === 'models' ? t('ai.loadingModels') : t('ai.loadModels')}
+          </button>
+        </span>
+        {liveModels || !preset.custom ? (
+          <select value={model} onChange={(e) => { setModel(e.target.value); setResult(null) }}
+            className="mt-1 w-full rounded-md bg-[var(--color-surface-2)] px-3 py-1.5 outline-none mono">
+            {modelOptions.map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+        ) : (
+          <input value={model} onChange={(e) => { setModel(e.target.value); setResult(null) }}
+            placeholder="model-name — or click Load models"
+            className="mt-1 w-full rounded-md bg-[var(--color-surface-2)] px-3 py-1.5 outline-none mono" />
+        )}
+        {!liveModels && (
+          <span className="mt-1 block text-[10px] text-[var(--color-ink-faint)]">{t('ai.modelHint')}</span>
+        )}
+      </label>
 
       {/* result banner */}
       {result && (

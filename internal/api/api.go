@@ -63,6 +63,7 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/ai/config", s.handleAIConfig)
 	mux.HandleFunc("POST /api/ai/config", s.handleAISaveConfig)
 	mux.HandleFunc("POST /api/ai/test", s.handleAITest)
+	mux.HandleFunc("POST /api/ai/models", s.handleAIModels)
 	mux.HandleFunc("POST /api/ai/summary", s.handleAISummary)
 	mux.HandleFunc("POST /api/ai/trends", s.handleAITrends)
 	return mux
@@ -131,6 +132,38 @@ func (s *Server) handleAITest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// handleAIModels lists the models the given key/provider can access, so the UI
+// can populate the model dropdown with the real, current catalog. Not saved.
+func (s *Server) handleAIModels(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	var in struct {
+		Provider string `json:"provider"`
+		BaseURL  string `json:"baseUrl"`
+		APIKey   string `json:"apiKey"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid body"})
+		return
+	}
+	key := in.APIKey
+	if key == "" {
+		key = ai.LoadConfig().APIKey
+	}
+	if key == "" {
+		writeJSON(w, http.StatusOK, map[string]any{"error": "enter an API key first"})
+		return
+	}
+	// Model isn't needed to list models; pass a placeholder so Configured() passes.
+	client := ai.New(ai.Config{Provider: ai.Provider(in.Provider), BaseURL: in.BaseURL, APIKey: key, Model: "list"})
+	models, err := client.Models(ctx)
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"models": models})
 }
 
 // handleAISummary runs the deterministic scans and asks the AI for a

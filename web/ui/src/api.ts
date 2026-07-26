@@ -269,6 +269,8 @@ export const api = {
     post<{ saved?: boolean; error?: string }>('/api/ai/config', c),
   aiTest: (c: { provider: string; model: string; apiKey: string; baseUrl?: string }) =>
     post<{ ok: boolean; error?: string }>('/api/ai/test', c),
+  aiModels: (c: { provider: string; apiKey: string; baseUrl?: string }) =>
+    post<{ models?: string[]; error?: string }>('/api/ai/models', c),
   aiSummary: () => post<{ text?: string; error?: string }>('/api/ai/summary'),
   aiTrends: () => post<{ text?: string; error?: string }>('/api/ai/trends'),
 }
