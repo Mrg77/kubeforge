@@ -1,0 +1,9 @@
+/kubeforge
+/dist/
+# frontend
+web/node_modules/
+web/dist/
+!web/dist/.gitkeep
+# editor / OS
+.DS_Store
+*.swp
