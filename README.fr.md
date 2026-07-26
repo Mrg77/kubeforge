@@ -6,6 +6,10 @@
 
 Un seul binaire. Une seule commande. Il ouvre une console dans votre navigateur, lit votre cluster, et répond aux questions que les outils habituels laissent en suspens : _où est-ce que je gaspille de l'argent, comment tout ça est câblé, est-ce que ça s'améliore ou se dégrade avec le temps, et où sont les trous de sécurité ?_
 
+[![CI](https://github.com/Mrg77/kubeforge/actions/workflows/ci.yml/badge.svg)](https://github.com/Mrg77/kubeforge/actions/workflows/ci.yml)
+[![Licence : MIT](https://img.shields.io/badge/License-MIT-forge.svg?color=d97a2b)](LICENSE)
+[![Go](https://img.shields.io/badge/Go-1.26-00ADD8.svg)](go.mod)
+
 [English](README.md) · [Français](README.fr.md)
 
 ![KubeForge — visite de la console](docs/img/demo.gif)
@@ -59,12 +63,20 @@ Quand vous l'activez, vous fournissez votre propre clé — **Anthropic**, ou n'
 
 ## Installation & lancement
 
-Il vous faut Go 1.26+ et un kubeconfig qui atteint un cluster.
+**Avec Homebrew** (dès que la première release est taguée) :
 
 ```bash
-# cloner et compiler le binaire unique (l'UI est embarquée — pas de frontend à servir à part)
+brew install mrg77/tap/kubeforge
+kubeforge serve
+```
+
+**Ou compiler depuis les sources** — il vous faut Go 1.26+ et un kubeconfig qui atteint un cluster :
+
+```bash
 git clone https://github.com/Mrg77/kubeforge.git
 cd kubeforge
+# compiler le frontend embarqué, puis le binaire unique
+( cd web/ui && npm ci && npm run build )
 go build -o kubeforge .
 
 # le lancer — il se connecte à votre contexte courant et ouvre le navigateur

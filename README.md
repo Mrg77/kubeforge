@@ -6,6 +6,10 @@
 
 One binary. One command. It opens a console in your browser, reads your cluster, and answers the questions the usual tools leave hanging: _where am I wasting money, how is this thing wired, is it getting better or worse over time, and where are the security holes?_
 
+[![CI](https://github.com/Mrg77/kubeforge/actions/workflows/ci.yml/badge.svg)](https://github.com/Mrg77/kubeforge/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-forge.svg?color=d97a2b)](LICENSE)
+[![Go](https://img.shields.io/badge/Go-1.26-00ADD8.svg)](go.mod)
+
 [English](README.md) · [Français](README.fr.md)
 
 ![KubeForge — a tour of the console](docs/img/demo.gif)
@@ -59,12 +63,20 @@ When you turn it on, you provide your own key — **Anthropic**, or any **OpenAI
 
 ## Install & run
 
-You'll need Go 1.26+ and a kubeconfig that can reach a cluster.
+**With Homebrew** (once the first release is tagged):
 
 ```bash
-# clone and build the single binary (the UI is embedded — no separate frontend to serve)
+brew install mrg77/tap/kubeforge
+kubeforge serve
+```
+
+**Or build from source** — you'll need Go 1.26+ and a kubeconfig that can reach a cluster:
+
+```bash
 git clone https://github.com/Mrg77/kubeforge.git
 cd kubeforge
+# build the embedded frontend, then the single binary
+( cd web/ui && npm ci && npm run build )
 go build -o kubeforge .
 
 # run it — it connects to your current context and opens the browser
