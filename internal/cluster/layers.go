@@ -493,6 +493,12 @@ func (c *Client) addCustomResources(ctx context.Context, ns string, add func(Gra
 		if !rk.Custom || !rk.Namespaced {
 			continue
 		}
+		// Skip aggregated/technical API groups that mirror core objects or are
+		// pure runtime data — they'd clutter the stack with per-pod duplicates
+		// (metrics.k8s.io = PodMetrics, one per pod) rather than real resources.
+		if skipCustomGroup(rk.Group) {
+			continue
+		}
 		objs, err := c.ListResource(ctx, rk, ns)
 		if err != nil {
 			continue
@@ -506,6 +512,23 @@ func (c *Client) addCustomResources(ctx context.Context, ns string, add func(Gra
 			})
 		}
 	}
+}
+
+// skipCustomGroup filters out aggregated/technical API groups from the custom-
+// resource layer: metrics mirrors (one PodMetrics per pod), event/coordination
+// noise, and the API-extensions machinery itself.
+func skipCustomGroup(group string) bool {
+	switch group {
+	case "metrics.k8s.io",
+		"events.k8s.io",
+		"coordination.k8s.io",
+		"discovery.k8s.io",
+		"apiregistration.k8s.io",
+		"authentication.k8s.io",
+		"authorization.k8s.io":
+		return true
+	}
+	return false
 }
 
 // addGovernance surfaces the namespace guard-rails as top-layer nodes. They
