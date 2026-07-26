@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
-import { api, type FinReport, type PodCost } from '../api'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, Treemap } from 'recharts'
+import { api, type FinReport, type PodCost, type NamespaceCost } from '../api'
 import { Card, Stat, Spinner, ErrorNote, cn } from '../lib'
 
 // FinOps: "where am I wasting money?" — reserved vs actually used, ranked by
@@ -56,6 +56,9 @@ export function FinOps() {
           hint="no requests set"
         />
       </div>
+
+      {/* Cost treemap: size = spend, color = waste ratio, per namespace */}
+      {rep.namespaces.length > 0 && rep.totalMonthly > 0 && <CostTreemap namespaces={rep.namespaces} />}
 
       {/* Reserved vs used, top wasters */}
       {chartData.length > 0 && (
@@ -165,4 +168,82 @@ function Row({ p, metrics }: { p: PodCost; metrics: boolean }) {
 
 function round(n: number) {
   return Math.round(n)
+}
+
+// CostTreemap: each rectangle is a namespace, sized by monthly spend and colored
+// by waste ratio (green = efficient, red = mostly wasted). One glance shows
+// where the money goes and where it's burned.
+function CostTreemap({ namespaces }: { namespaces: NamespaceCost[] }) {
+  const data = namespaces
+    .filter((n) => n.monthlyCost > 0)
+    .map((n) => ({
+      name: n.namespace,
+      size: Math.round(n.monthlyCost),
+      wasted: Math.round(n.wastedMonthly),
+      ratio: n.monthlyCost > 0 ? n.wastedMonthly / n.monthlyCost : 0,
+    }))
+
+  return (
+    <Card className="p-5">
+      <div className="mb-1 text-sm font-medium">Cost map — spend by namespace</div>
+      <div className="mb-4 text-xs text-[var(--color-ink-faint)]">
+        Size = $/mo reserved · color = share wasted (green efficient → red mostly idle)
+      </div>
+      <ResponsiveContainer width="100%" height={280}>
+        <Treemap
+          data={data}
+          dataKey="size"
+          stroke="var(--color-bg)"
+          content={<TreemapCell />}
+          isAnimationActive={false}
+        >
+          <Tooltip content={<TreemapTooltip />} />
+        </Treemap>
+      </ResponsiveContainer>
+    </Card>
+  )
+}
+
+// wasteColor blends green→amber→red by waste ratio.
+function wasteColor(ratio: number): string {
+  if (ratio >= 0.6) return '#f85149' // crit
+  if (ratio >= 0.3) return '#d29922' // warn
+  if (ratio >= 0.15) return '#8a7b3a'
+  return '#2f6f4f' // efficient green
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function TreemapCell(props: any) {
+  const { x, y, width, height, name, ratio, size } = props
+  if (width < 2 || height < 2) return null
+  const fill = wasteColor(ratio ?? 0)
+  const showLabel = width > 60 && height > 30
+  return (
+    <g>
+      <rect x={x} y={y} width={width} height={height} fill={fill} stroke="var(--color-bg)" strokeWidth={2} rx={3} />
+      {showLabel && (
+        <>
+          <text x={x + 8} y={y + 20} fill="#fff" fontSize={12} fontWeight={600} className="mono">
+            {name}
+          </text>
+          <text x={x + 8} y={y + 38} fill="#ffffffcc" fontSize={11} className="mono">
+            ${size}/mo
+          </text>
+        </>
+      )}
+    </g>
+  )
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function TreemapTooltip({ active, payload }: any) {
+  if (!active || !payload?.length) return null
+  const d = payload[0].payload
+  return (
+    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3 text-sm">
+      <div className="font-medium mono">{d.name}</div>
+      <div className="mt-1 text-[var(--color-ink-dim)]">${d.size}/mo reserved</div>
+      <div className="text-[var(--color-warn)]">${d.wasted}/mo wasted ({Math.round(d.ratio * 100)}%)</div>
+    </div>
+  )
 }

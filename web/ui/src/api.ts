@@ -75,8 +75,16 @@ export interface PodCost {
   hasMetrics: boolean
 }
 
+export interface NamespaceCost {
+  namespace: string
+  monthlyCost: number
+  wastedMonthly: number
+  pods: number
+}
+
 export interface FinReport {
   pods: PodCost[]
+  namespaces: NamespaceCost[]
   totalMonthly: number
   wastedMonthly: number
   metricsAvailable: boolean

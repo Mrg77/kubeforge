@@ -56,6 +56,27 @@ func Scan(ctx context.Context, kube kubernetes.Interface, metrics metricsv.Inter
 	sort.SliceStable(rep.Pods, func(a, b int) bool {
 		return rep.Pods[a].WastedMonthly > rep.Pods[b].WastedMonthly
 	})
+
+	// Roll up per namespace for the treemap.
+	byNS := map[string]*NamespaceCost{}
+	for _, pc := range rep.Pods {
+		ns := byNS[pc.Namespace]
+		if ns == nil {
+			ns = &NamespaceCost{Namespace: pc.Namespace}
+			byNS[pc.Namespace] = ns
+		}
+		ns.MonthlyCost += pc.MonthlyCost
+		ns.WastedMonthly += pc.WastedMonthly
+		ns.Pods++
+	}
+	for _, ns := range byNS {
+		ns.MonthlyCost = round(ns.MonthlyCost)
+		ns.WastedMonthly = round(ns.WastedMonthly)
+		rep.Namespaces = append(rep.Namespaces, *ns)
+	}
+	sort.SliceStable(rep.Namespaces, func(a, b int) bool {
+		return rep.Namespaces[a].MonthlyCost > rep.Namespaces[b].MonthlyCost
+	})
 	return rep, nil
 }
 

@@ -58,13 +58,23 @@ type PodCost struct {
 	HasMetrics     bool       `json:"hasMetrics"`     // false when usage is unknown
 }
 
+// NamespaceCost aggregates cost per namespace — the top level of the FinOps
+// treemap (namespace → pods), where size is spend and color is waste ratio.
+type NamespaceCost struct {
+	Namespace     string  `json:"namespace"`
+	MonthlyCost   float64 `json:"monthlyCost"`
+	WastedMonthly float64 `json:"wastedMonthly"`
+	Pods          int     `json:"pods"`
+}
+
 // Report is the whole-cluster FinOps summary.
 type Report struct {
-	Pods             []PodCost `json:"pods"`
-	TotalMonthly     float64   `json:"totalMonthly"`  // estimated $/mo reserved across all pods
-	WastedMonthly    float64   `json:"wastedMonthly"` // estimated $/mo wasted (reserved-unused)
-	MetricsAvailable bool      `json:"metricsAvailable"`
-	Prices           Prices    `json:"prices"`
+	Pods             []PodCost       `json:"pods"`
+	Namespaces       []NamespaceCost `json:"namespaces"`    // per-namespace rollup for the treemap
+	TotalMonthly     float64         `json:"totalMonthly"`  // estimated $/mo reserved across all pods
+	WastedMonthly    float64         `json:"wastedMonthly"` // estimated $/mo wasted (reserved-unused)
+	MetricsAvailable bool            `json:"metricsAvailable"`
+	Prices           Prices          `json:"prices"`
 }
 
 // monthlyCost estimates $/mo for a given amount of reserved CPU cores + memory GB.
