@@ -1,24 +1,16 @@
 import { useEffect, useState } from 'react'
 import { api, type Topology as Topo } from '../api'
-import { Card, Spinner, ErrorNote } from '../lib'
+import { Spinner, ErrorNote } from '../lib'
 import { useT } from '../i18n'
 import { Layered } from './topo/Layered'
-import { ByNamespace } from './topo/ByNamespace'
-import { DependencyGraph } from './topo/DependencyGraph'
-import { ByNode } from './topo/ByNode'
 
-// Topology offers several lenses over the same cluster graph, so you can pick the
-// one that fits: namespaces (how you reason about prod), a workload graph (the
-// wiring), by-node (what runs where), and a heatmap (fleet health at scale).
-// POC note: the four variants are kept side-by-side behind a selector so we can
-// compare them on a real cluster and keep the winners.
-type Lens = 'layered' | 'namespace' | 'graph' | 'node' | 'heatmap'
+// Topology has two lenses: the Resource stack (the flagship — a namespace drawn
+// from traffic-in down to config/RBAC/storage) and a Heatmap for fleet health at
+// scale (500+ pods, where the stack would overflow). The stack is the default.
+type Lens = 'layered' | 'heatmap'
 
 const LENSES: { id: Lens; key: string }[] = [
   { id: 'layered', key: 'topo.lens.layered' },
-  { id: 'namespace', key: 'topo.lens.namespace' },
-  { id: 'graph', key: 'topo.lens.graph' },
-  { id: 'node', key: 'topo.lens.node' },
   { id: 'heatmap', key: 'topo.lens.heatmap' },
 ]
 
@@ -73,13 +65,6 @@ export function Topology() {
       </div>
 
       {lens === 'layered' && <Layered />}
-      {lens === 'namespace' && <ByNamespace topo={topo} />}
-      {lens === 'graph' && (
-        <Card className="p-4 overflow-auto">
-          <DependencyGraph topo={topo} />
-        </Card>
-      )}
-      {lens === 'node' && <ByNode topo={topo} />}
       {lens === 'heatmap' && <HeatmapView topo={topo} />}
     </div>
   )

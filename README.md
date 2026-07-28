@@ -47,9 +47,9 @@ The bet is simple: don't build _yet another resource browser_. Build the three o
 ## What's inside
 
 - **Overview** — a hub: four pillar cards (cost, security, storage, topology) give each area's headline and link into it, over a health table with unhealthy pods surfaced first.
-- **Topology** — five lenses over the same cluster graph:
+- **Topology** — two lenses over the cluster:
   - **Resource stack** _(the headline)_ — a namespace as a layered graph, high-level (Ingress) down to low-level (Secrets, RBAC, storage). Nodes carry inline SecOps warnings and a `CRD` badge for operator resources; hover for facts (IP, image, monthly cost), click for the live manifest (secrets redacted) and recent events.
-  - **Namespaces / Workload graph / By node / Heatmap** — the same graph as namespace cards, a force-directed workload graph, a per-node view, or a fleet heatmap that scales past 500 pods.
+  - **Heatmap** — one cell per pod, colored by health, for fleet status at scale (500+ pods, where the stack would overflow).
 - **FinOps** — a real cost dashboard: a cluster-efficiency gauge (used vs reserved CPU), cost **grouped by workload** (expandable to pods) with filter/search/sort, a top-wasters chart, and the spend-by-namespace treemap. Pricing **auto-detects your cloud** from the nodes' `providerID` (AWS/GCP/Azure) and applies matching defaults — a local cluster (kind/minikube) is honestly flagged "estimate only, no real billing". You can still override the per-core / per-GB price.
 - **SecOps** — a deterministic security-posture scan with a **0–100 posture score** computed from _your_ workloads (system namespaces excluded, so Kubernetes' own privileged pods don't sink your grade). It flags privileged containers, `hostNetwork`/`hostPID`, dangerous capabilities, run-as-root, mutable image tags, namespaces with no NetworkPolicy, and cluster-admin on the wrong subjects. Identical findings are **grouped** ("may run as root · 33 objects" instead of 33 rows), system noise is hidden by default, every finding has a plain _why_ + fix and a jump into the Resource stack, and the whole report exports to **CSV**.
 - **Storage** — PVs, PVCs and StorageClasses in one place, with orphaned volumes and unmounted claims called out and **costed** (that's storage you're paying for and not using).
