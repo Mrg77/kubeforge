@@ -38,6 +38,9 @@ type TopoPod struct {
 	Owner string `json:"owner"`
 	// OwnerKind is Deployment/StatefulSet/DaemonSet/Job/ReplicaSet/Pod.
 	OwnerKind string `json:"ownerKind"`
+	// Restarts is the pod's total container restart count — a health signal the
+	// heatmap tooltip surfaces.
+	Restarts int32 `json:"restarts"`
 }
 
 // TopoService is a service and the pod keys (namespace/name) it selects, so the
@@ -106,9 +109,13 @@ func (c *Client) BuildTopology(ctx context.Context, ns string) (*Topology, error
 		p := &podList.Items[i]
 		sum := summarizePod(p)
 		owner, ownerKind := workloadOf(p)
+		var restarts int32
+		for _, cs := range p.Status.ContainerStatuses {
+			restarts += cs.RestartCount
+		}
 		tp := TopoPod{
 			Name: p.Name, Namespace: p.Namespace, Healthy: sum.Healthy, Status: sum.Status,
-			Owner: owner, OwnerKind: ownerKind,
+			Owner: owner, OwnerKind: ownerKind, Restarts: restarts,
 		}
 		node := p.Spec.NodeName
 		if node == "" {

@@ -37,6 +37,7 @@ export interface TopoPod {
   status: string
   owner: string
   ownerKind: string
+  restarts: number
 }
 
 export interface Topology {

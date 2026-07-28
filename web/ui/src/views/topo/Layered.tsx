@@ -327,7 +327,7 @@ function DetailPanel({ node }: { node: GraphNode }) {
 // ObjectDrawer slides in when a node is clicked: it shows the resource's facts,
 // any SecOps risks, its recent events (the quick "why unhealthy"), and the live
 // manifest (Secret data redacted server-side).
-function ObjectDrawer({ node, namespace, onClose }: {
+export function ObjectDrawer({ node, namespace, onClose }: {
   node: GraphNode
   namespace: string
   onClose: () => void
