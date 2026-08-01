@@ -78,12 +78,20 @@ Des questions suggérées vous lancent en un clic, et c'est une vraie conversati
 
 ## Installation & lancement
 
-**Avec Homebrew** (dès que la première release est taguée) :
+**macOS (Homebrew) :**
 
 ```bash
 brew install mrg77/tap/kubeforge
-kubeforge serve
 ```
+
+**Linux (Debian/Ubuntu/Alpine…) ou macOS** — le script d'installation :
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Mrg77/kubeforge/main/install.sh | sh
+```
+
+Il choisit le bon binaire pour votre OS/arch dans `~/.local/bin` (surchargez avec
+`KUBEFORGE_INSTALL_DIR`, épinglez avec `KUBEFORGE_VERSION=v0.1.0`).
 
 **Ou compiler depuis les sources** — il vous faut Go 1.26+ et un kubeconfig qui atteint un cluster :
 

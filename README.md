@@ -78,12 +78,20 @@ Suggested questions get you started in one click, and it's a real multi-turn con
 
 ## Install & run
 
-**With Homebrew** (once the first release is tagged):
+**macOS (Homebrew):**
 
 ```bash
 brew install mrg77/tap/kubeforge
-kubeforge serve
 ```
+
+**Linux (Debian/Ubuntu/Alpine…) or macOS** — the install script:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Mrg77/kubeforge/main/install.sh | sh
+```
+
+It picks the right binary for your OS/arch into `~/.local/bin` (override with
+`KUBEFORGE_INSTALL_DIR`, pin with `KUBEFORGE_VERSION=v0.1.0`).
 
 **Or build from source** — you'll need Go 1.26+ and a kubeconfig that can reach a cluster:
 
